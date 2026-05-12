@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/db';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -17,9 +18,14 @@ import {
     Edit,
     Trash2,
     Loader2,
+    WifiOff,
+    Wifi,
+    CloudOff,
+    CloudCheck,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import ExcelJS from 'exceljs';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
@@ -27,6 +33,8 @@ interface ExtendedServiceRecord extends ServiceEntry {
     beneficiary?: {
         name: string;
     };
+    isOffline?: boolean;
+    sync_status?: 'pending' | 'synced' | 'failed';
 }
 
 export function ServiceHistoryPage() {
@@ -40,52 +48,155 @@ export function ServiceHistoryPage() {
     const { canEditRecords, canDeleteRecords, canExportData } = usePermissions();
     const showActions = canEditRecords || canDeleteRecords;
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const isOnline = useOnlineStatus();
 
     const fetchHistory = useCallback(async () => {
         setIsLoading(true);
         try {
-            const { data: entries, error: entriesError } = await supabase
-                .from('service_entries')
-                .select('*')
-                .order('schedule_date', { ascending: false });
+            let serverEntries: ExtendedServiceRecord[] = [];
 
-            if (entriesError) throw entriesError;
+            if (isOnline) {
+                try {
+                    const { data: entries, error: entriesError } = await supabase
+                        .from('service_entries')
+                        .select('*')
+                        .order('schedule_date', { ascending: false });
 
-            if (!entries || entries.length === 0) {
-                setServices([]);
-                return;
-            }
+                    if (entriesError) throw entriesError;
 
-            const fileNumbers = Array.from(new Set(entries.map(e => e.file_number))).filter(Boolean);
+                    if (entries && entries.length > 0) {
+                        const fileNumbers = Array.from(new Set(entries.map((e: ServiceEntry) => e.file_number))).filter(Boolean) as string[];
 
-            const bMap = new Map<string, string>();
-            if (fileNumbers.length > 0) {
-                const { data: beneficiaries, error: bError } = await supabase
-                    .from('beneficiaries')
-                    .select('name, file_number')
-                    .in('file_number', fileNumbers);
+                        // bMap: stored file_number -> beneficiary name
+                        // fnMap: stored file_number -> real file_number (when stored value is a token/UUID)
+                        const bMap = new Map<string, string>();
+                        const fnMap = new Map<string, string>();
 
-                if (!bError && beneficiaries) {
-                    beneficiaries.forEach(b => {
-                        if (b.file_number) bMap.set(b.file_number, b.name);
-                    });
+                        if (fileNumbers.length > 0) {
+                            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                            const uuidRefs = fileNumbers.filter(fn => uuidPattern.test(fn));
+                            const offTokenRefs = fileNumbers.filter(fn => fn.startsWith('OFF-'));
+                            const realFileNums = fileNumbers.filter(fn => !uuidPattern.test(fn) && !fn.startsWith('OFF-'));
+
+                            if (realFileNums.length > 0) {
+                                const { data: byFileNum } = await supabase
+                                    .from('beneficiaries')
+                                    .select('name, file_number')
+                                    .in('file_number', realFileNums);
+                                byFileNum?.forEach((b: { name: string; file_number: string | null }) => {
+                                    if (b.file_number) bMap.set(b.file_number, b.name);
+                                });
+                            }
+
+                            // Beneficiaries without a file_number are referenced by their Supabase id
+                            if (uuidRefs.length > 0) {
+                                const { data: byId } = await supabase
+                                    .from('beneficiaries')
+                                    .select('id, name, file_number')
+                                    .in('id', uuidRefs);
+                                byId?.forEach((b: { id: string; name: string; file_number: string | null }) => {
+                                    bMap.set(b.id, b.name);
+                                    if (b.file_number) fnMap.set(b.id, b.file_number);
+                                });
+                            }
+
+                            // Offline-token entries: beneficiary synced but file_number not yet assigned
+                            if (offTokenRefs.length > 0) {
+                                const { data: byToken } = await supabase
+                                    .from('beneficiaries')
+                                    .select('offline_token, name, file_number')
+                                    .in('offline_token', offTokenRefs);
+                                byToken?.forEach((b: { offline_token: string; name: string; file_number: string | null }) => {
+                                    bMap.set(b.offline_token, b.name);
+                                    if (b.file_number) fnMap.set(b.offline_token, b.file_number);
+                                });
+                            }
+
+                            // Fallback: legacy entries stored the beneficiary name as file_number
+                            const notFound = fileNumbers.filter(fn => !bMap.has(fn));
+                            if (notFound.length > 0) {
+                                const { data: byName } = await supabase
+                                    .from('beneficiaries')
+                                    .select('name')
+                                    .in('name', notFound);
+                                byName?.forEach((b: { name: string }) => {
+                                    bMap.set(b.name, b.name);
+                                });
+                            }
+                        }
+
+                        serverEntries = entries.map((item: ServiceEntry) => {
+                            const storedFn = item.file_number ?? '';
+                            return {
+                                ...item,
+                                file_number: fnMap.get(storedFn) ?? item.file_number,
+                                beneficiary: { name: bMap.get(storedFn) || 'Beneficiary Not Found' }
+                            };
+                        });
+                    }
+                } catch (serverErr) {
+                    console.error('[ServiceHistory] Server fetch failed, showing local records only:', serverErr);
                 }
             }
 
-            const mappedData: ExtendedServiceRecord[] = entries.map(item => ({
-                ...item,
-                beneficiary: {
-                    name: bMap.get(item.file_number) || 'Beneficiary Not Found'
-                }
-            }));
+            // Always merge local pending/failed records — runs even if Supabase fetch failed
+            const localPending = await db.service_entries
+                .where('sync_status')
+                .anyOf(['pending', 'failed'])
+                .toArray();
 
-            setServices(mappedData);
+            // Look up real beneficiary names from Dexie for offline-token entries
+            const offlineTokens = [...new Set(
+                localPending.filter(r => r.file_number?.startsWith('OFF-')).map(r => r.file_number!)
+            )];
+            const dexieNameMap = new Map<string, string>();
+            if (offlineTokens.length > 0) {
+                const dexieBeneficiaries = await db.beneficiaries
+                    .where('offline_token').anyOf(offlineTokens).toArray();
+                dexieBeneficiaries.forEach(b => dexieNameMap.set(b.offline_token, b.name));
+            }
+
+            const syncedOfflineIds = new Set(serverEntries.map(s => (s as ExtendedServiceRecord & { offline_id?: string }).offline_id).filter(Boolean));
+
+            const offlineEntries: ExtendedServiceRecord[] = localPending
+                .filter(r => !syncedOfflineIds.has(r.offline_id))
+                .map(r => ({
+                    id: `offline-${r.id}`,
+                    status: r.status,
+                    file_number: r.file_number,
+                    schedule_date: r.schedule_date,
+                    start_date: r.start_date,
+                    end_date: r.end_date,
+                    location_code: r.location_code,
+                    service_code: r.service_code,
+                    service_provider_code: r.service_provider_code,
+                    recommendation: r.recommendation,
+                    contribution: r.contribution,
+                    balance: r.balance,
+                    total: r.total,
+                    outcome: r.outcome,
+                    outcome_description: r.outcome_description,
+                    receipt_no: r.receipt_no,
+                    total_hours: r.total_hours,
+                    custom_field2: r.custom_field2,
+                    mode_of_service: r.mode_of_service,
+                    custom_field4: r.custom_field4,
+                    custom_field5: r.custom_field5,
+                    remarks: r.remarks,
+                    created_at: r.created_at,
+                    updated_at: r.created_at,
+                    beneficiary: { name: dexieNameMap.get(r.file_number ?? '') || r.file_number || 'Unknown' },
+                    isOffline: true,
+                    sync_status: r.sync_status
+                }));
+
+            setServices([...offlineEntries, ...serverEntries]);
         } catch (error) {
             console.error('Error fetching service history:', error);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [isOnline]);
 
     useEffect(() => {
         fetchHistory();
@@ -114,6 +225,7 @@ export function ServiceHistoryPage() {
     const uniqueBeneficiaryCount = new Set(filteredServices.map(s => s.file_number)).size;
 
     const handleExport = async () => {
+        const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Service History');
 
@@ -194,7 +306,10 @@ export function ServiceHistoryPage() {
                     </h1>
                     <p className="text-text-muted text-sm mt-1">Review and audit all 21 fields of service entry records.</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap justify-end">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold ${isOnline ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+                        {isOnline ? <><Wifi size={14} /> <span className="uppercase tracking-wider">Online</span></> : <><WifiOff size={14} /> <span className="uppercase tracking-wider">Offline</span></>}
+                    </div>
                     <Button variant="secondary" onClick={fetchHistory} className="bg-white">
                         <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                     </Button>
@@ -337,7 +452,9 @@ export function ServiceHistoryPage() {
                                                     {service.beneficiary?.name || 'In-Process...'}
                                                 </span>
                                                 <span className="text-[11px] font-black text-blue-600 tracking-tight">
-                                                    #{service.file_number}
+                                                    {service.file_number && !service.file_number.startsWith('OFF-') && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(service.file_number)
+                                                        ? `#${service.file_number}`
+                                                        : 'Not Assigned'}
                                                 </span>
                                             </div>
                                         </td>
@@ -370,42 +487,52 @@ export function ServiceHistoryPage() {
                                             </div>
                                         </td>
                                         <td className="py-5">
-                                            {service.remarks === 'Created via Assessment Entry' ? (
-                                                <span className="inline-block whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-purple-100 text-purple-700">
-                                                    Assessment
-                                                </span>
-                                            ) : (
-                                                <span className="inline-block whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-blue-100 text-blue-700">
-                                                    Service Entry
-                                                </span>
-                                            )}
+                                            <div className="flex flex-col gap-1">
+                                                {service.isOffline ? (
+                                                    <span className={`inline-flex items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${service.sync_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                        <CloudOff size={10} />
+                                                        {service.sync_status === 'failed' ? 'Sync Failed' : 'Pending Sync'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-green-50 text-green-700 border border-green-100">
+                                                        <CloudCheck size={10} /> Synced
+                                                    </span>
+                                                )}
+                                                {!service.isOffline && (
+                                                    <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${service.remarks === 'Created via Assessment Entry' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                        {service.remarks === 'Created via Assessment Entry' ? 'Assessment' : 'Service Entry'}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         {showActions && (
                                             <td className="py-5 pr-4 text-right">
-                                                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                                                    {canEditRecords && (
-                                                        <Button
-                                                            variant="secondary"
-                                                            className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-blue-50 text-blue-600 border-none hover:bg-blue-100"
-                                                            onClick={() => navigate(`/services/edit/${service.id}`)}
-                                                        >
-                                                            <Edit size={14} /> Edit
-                                                        </Button>
-                                                    )}
-                                                    {canDeleteRecords && (
-                                                        <Button
-                                                            variant="secondary"
-                                                            className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-red-50 text-red-600 border-none hover:bg-red-100"
-                                                            onClick={() => handleDelete(service)}
-                                                            disabled={deletingId === service.id}
-                                                        >
-                                                            {deletingId === service.id
-                                                                ? <Loader2 size={14} className="animate-spin" />
-                                                                : <Trash2 size={14} />}
-                                                            Delete
-                                                        </Button>
-                                                    )}
-                                                </div>
+                                                {!service.isOffline && (
+                                                    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                                                        {canEditRecords && (
+                                                            <Button
+                                                                variant="secondary"
+                                                                className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-blue-50 text-blue-600 border-none hover:bg-blue-100"
+                                                                onClick={() => navigate(`/services/edit/${service.id}`)}
+                                                            >
+                                                                <Edit size={14} /> Edit
+                                                            </Button>
+                                                        )}
+                                                        {canDeleteRecords && (
+                                                            <Button
+                                                                variant="secondary"
+                                                                className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-red-50 text-red-600 border-none hover:bg-red-100"
+                                                                onClick={() => handleDelete(service)}
+                                                                disabled={deletingId === service.id}
+                                                            >
+                                                                {deletingId === service.id
+                                                                    ? <Loader2 size={14} className="animate-spin" />
+                                                                    : <Trash2 size={14} />}
+                                                                Delete
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </td>
                                         )}
                                     </tr>

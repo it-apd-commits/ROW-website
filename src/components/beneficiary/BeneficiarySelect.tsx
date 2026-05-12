@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, User, Loader2, X } from 'lucide-react';
+import { db } from '@/lib/db';
+import { Search, User, Loader2, X, WifiOff } from 'lucide-react';
 import { Card } from '@/components/common/Card';
 
 interface Beneficiary {
     id: string;
     name: string;
     file_number: string | null;
+    _isOffline?: boolean;
 }
 
 interface BeneficiarySelectProps {
@@ -28,19 +30,37 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
     useEffect(() => {
         if ((selectedId || selectedFileNumber) && !selectedBeneficiary) {
             const fetchSelected = async () => {
+                // Try Supabase first
                 let query = supabase.from('beneficiaries').select('id, name, file_number');
-
                 if (selectedId) {
                     query = query.eq('id', selectedId);
                 } else if (selectedFileNumber) {
                     query = query.eq('file_number', selectedFileNumber);
                 }
-
                 const { data, error } = await query.maybeSingle();
-
                 if (!error && data) {
                     setSelectedBeneficiary(data);
                     setSearchTerm(`${data.file_number || 'N/A'} - ${data.name}`);
+                    return;
+                }
+
+                // Fallback: check Dexie (all sync statuses — covers pending and cached synced records)
+                const offline = await db.beneficiaries
+                    .filter(b =>
+                        b.offline_token === selectedId ||
+                        b.offline_token === selectedFileNumber ||
+                        (b.file_number != null && b.file_number === selectedFileNumber)
+                    )
+                    .first();
+                if (offline) {
+                    const b: Beneficiary = {
+                        id: offline.offline_token,
+                        name: offline.name,
+                        file_number: offline.file_number ?? offline.offline_token,
+                        _isOffline: offline.sync_status !== 'synced',
+                    };
+                    setSelectedBeneficiary(b);
+                    setSearchTerm(`${b.file_number || 'N/A'} - ${b.name}`);
                 }
             };
             fetchSelected();
@@ -54,21 +74,63 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
         }
 
         setIsLoading(true);
-        try {
-            // Search by name or file_number
-            const { data, error } = await supabase
-                .from('beneficiaries')
-                .select('id, name, file_number')
-                .or(`name.ilike.%${term}%,file_number.ilike.%${term}%`)
-                .limit(10);
+        const lower = term.toLowerCase();
+        const isCurrentlyOnline = navigator.onLine;
 
-            if (error) throw error;
-            setResults(data || []);
-        } catch (error) {
-            console.error('Error searching beneficiaries:', error);
-        } finally {
-            setIsLoading(false);
-        }
+        // Run Supabase and Dexie searches independently so a Supabase failure
+        // never prevents offline/local results from appearing.
+        const supabaseSearch = isCurrentlyOnline
+            ? Promise.resolve(
+                supabase
+                    .from('beneficiaries')
+                    .select('id, name, file_number')
+                    // Use PostgREST `*` wildcard — avoids URL percent-encoding issues
+                    // that occur when `%` is used directly in .or() filter strings.
+                    .or(`name.ilike.*${term}*,file_number.ilike.*${term}*`)
+                    .limit(10)
+              ).catch(() => ({ data: [] as Beneficiary[], error: null }))
+            : Promise.resolve({ data: [] as Beneficiary[], error: null });
+
+        // Dexie search: when online only scan pending/failed (Supabase covers synced);
+        // when offline, load all records via toArray() then filter in JS — this matches
+        // the same pattern BeneficiaryList uses and avoids Collection.filter() edge cases
+        // in Dexie 4 when no index constraint is applied.
+        const dexieSearch = isCurrentlyOnline
+            ? db.beneficiaries
+                .where('sync_status').anyOf(['pending', 'failed'])
+                .filter(b =>
+                    b.name.toLowerCase().includes(lower) ||
+                    b.offline_token.toLowerCase().includes(lower) ||
+                    (b.file_number != null && b.file_number.toLowerCase().includes(lower))
+                )
+                .limit(10)
+                .toArray()
+                .catch(() => [])
+            : db.beneficiaries
+                .toArray()
+                .then(all =>
+                    all
+                        .filter(b =>
+                            b.name.toLowerCase().includes(lower) ||
+                            b.offline_token.toLowerCase().includes(lower) ||
+                            (b.file_number != null && b.file_number.toLowerCase().includes(lower))
+                        )
+                        .slice(0, 10)
+                )
+                .catch(() => []);
+
+        const [supabaseResult, dexieRecords] = await Promise.all([supabaseSearch, dexieSearch]);
+
+        const onlineResults: Beneficiary[] = (supabaseResult.data ?? []) as Beneficiary[];
+        const offlineResults: Beneficiary[] = dexieRecords.map(b => ({
+            id: b.offline_token,
+            name: b.name,
+            file_number: b.file_number ?? b.offline_token,
+            _isOffline: b.sync_status !== 'synced',
+        }));
+
+        setResults([...onlineResults, ...offlineResults]);
+        setIsLoading(false);
     }, []);
 
     // Debounce search
@@ -104,8 +166,6 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
         setSelectedBeneficiary(null);
         setSearchTerm('');
         setResults([]);
-        // We probably need to notify parent that selection is cleared
-        // But usually ServiceEntry requires it, so maybe just let them select another
     };
 
     return (
@@ -150,20 +210,26 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
                             <div className="divide-y divide-gray-50">
                                 {results.map((b) => (
                                     <button
-                                        key={b.id}
+                                        key={b._isOffline ? `offline-${b.id}` : b.id}
                                         className="w-full px-4 py-3 flex items-start gap-3 hover:bg-primary/5 text-left transition-colors group"
                                         onClick={() => handleSelect(b)}
                                     >
-                                        <div className="p-2 bg-gray-50 rounded-lg text-gray-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                            <User size={18} />
+                                        <div className={`p-2 rounded-lg transition-colors ${b._isOffline ? 'bg-amber-50 text-amber-500 group-hover:bg-amber-100' : 'bg-gray-50 text-gray-400 group-hover:bg-primary/10 group-hover:text-primary'}`}>
+                                            {b._isOffline ? <WifiOff size={18} /> : <User size={18} />}
                                         </div>
-                                        <div className="flex flex-col">
+                                        <div className="flex flex-col gap-0.5">
                                             <span className="text-sm font-bold text-gray-900 group-hover:text-primary transition-colors">
                                                 {b.file_number || 'N/A'} - {b.name}
                                             </span>
-                                            <span className="text-[10px] text-gray-400 mt-0.5">
-                                                Click to select this beneficiary
-                                            </span>
+                                            {b._isOffline ? (
+                                                <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200 uppercase tracking-wider self-start">
+                                                    Pending Sync
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] text-gray-400">
+                                                    Click to select this beneficiary
+                                                </span>
+                                            )}
                                         </div>
                                     </button>
                                 ))}

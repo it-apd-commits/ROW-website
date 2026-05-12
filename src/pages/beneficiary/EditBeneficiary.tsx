@@ -327,7 +327,18 @@ export function EditBeneficiaryPage() {
                                     { value: 'Early Intervention', label: 'Early Intervention' },
                                 ]}
                             />
-                            <Input label="Donor" name="donor" value={formData.donor} onChange={handleChange} placeholder="Sponsor Name" />
+                            <Select
+                                label="Donor"
+                                name="donor"
+                                value={formData.donor}
+                                onChange={handleChange}
+                                options={[
+                                    { value: '', label: '-- Select Donor --' },
+                                    { value: 'ABB', label: 'ABB' },
+                                    { value: 'Brigade', label: 'Brigade' },
+                                    { value: 'Juniper', label: 'Juniper' },
+                                ]}
+                            />
                             <Select
                                 label="Economic Status"
                                 name="economicStatus"
@@ -336,6 +347,7 @@ export function EditBeneficiaryPage() {
                                 options={[
                                     { value: 'APL', label: 'APL (Above Poverty Line)' },
                                     { value: 'BPL', label: 'BPL (Below Poverty Line)' },
+                                    { value: 'NA', label: 'NA (Not Applicable)' },
                                 ]}
                             />
                         </div>

@@ -1,38 +1,76 @@
 
 import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/db';
+import type { OfflineServiceEntry } from '@/lib/db';
 import type { ServiceEntry, ServiceEntryPayload } from '@/types/serviceEntry';
 
 export const ServiceEntryService = {
     /**
-     * Creates a new service entry.
-     * Hidden fields are handled internally as NULL by default as per requirement.
+     * Creates a new service entry — saves to local Dexie first, then attempts
+     * an immediate Supabase insert if online. If offline the record stays as
+     * 'pending' and is pushed by SyncService when connectivity returns.
      */
     async createEntry(payload: ServiceEntryPayload & { remarks?: string | null }) {
         const { remarks, ...rest } = payload;
-        const { data, error } = await supabase
-            .from('service_entries')
-            .insert([{
-                ...rest,
-                // These fields are hidden in UI and will be NULL by default via DB or explicit NULL
-                recommendation: null,
-                contribution: null,
-                balance: null,
-                total: null,
-                outcome: null,
-                outcome_description: null,
-                receipt_no: null,
-                custom_field4: null,
-                custom_field5: null,
-                remarks: remarks ?? null
-            }])
-            .select()
-            .single();
+        const offlineId = `SE-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        const now = new Date().toISOString();
 
-        if (error) {
-            console.error('Error creating service entry:', error);
-            throw error;
+        const localRecord: OfflineServiceEntry = {
+            offline_id: offlineId,
+            status: rest.status,
+            file_number: rest.file_number,
+            schedule_date: rest.schedule_date,
+            start_date: rest.start_date,
+            end_date: rest.end_date ?? null,
+            location_code: rest.location_code,
+            service_code: rest.service_code,
+            service_provider_code: rest.service_provider_code,
+            recommendation: null,
+            contribution: null,
+            balance: null,
+            total: null,
+            outcome: null,
+            outcome_description: null,
+            receipt_no: null,
+            total_hours: rest.total_hours,
+            custom_field2: rest.custom_field2 ?? null,
+            mode_of_service: rest.mode_of_service,
+            custom_field4: null,
+            custom_field5: null,
+            remarks: remarks ?? null,
+            created_at: now,
+            sync_status: 'pending'
+        };
+
+        const localId = await db.service_entries.add(localRecord);
+
+        // If the service entry references an offline-registered beneficiary (file_number is an
+        // offline token), skip the immediate sync — SyncService will sync the beneficiary first,
+        // propagate the real file_number to this record, and then sync the entry in order.
+        const isOfflineBeneficiary = localRecord.file_number?.startsWith('OFF-') ?? false;
+
+        if (navigator.onLine && !isOfflineBeneficiary) {
+            const dataToSync = Object.fromEntries(
+                Object.entries(localRecord).filter(([key]) => !['sync_status', 'error_message'].includes(key))
+            );
+
+            const { error } = await supabase
+                .from('service_entries')
+                .insert([dataToSync]);
+
+            if (error) {
+                // Data is safe in Dexie — mark failed for SyncService retry, don't block the user
+                await db.service_entries.update(localId as number, {
+                    sync_status: 'failed',
+                    error_message: error.message
+                });
+                console.warn(`[ServiceEntryService] Online sync failed, will retry: ${error.message}`);
+            } else {
+                await db.service_entries.update(localId as number, { sync_status: 'synced' });
+            }
         }
-        return data as ServiceEntry;
+
+        return { ...localRecord, id: String(localId) } as unknown as ServiceEntry;
     },
 
     /**
@@ -89,7 +127,8 @@ export const ServiceEntryService = {
     },
 
     /**
-     * Updates an existing service entry
+     * Updates an existing service entry — requires an active connection
+     * since the record must already exist on the server.
      */
     async updateEntry(id: string, payload: Partial<ServiceEntry>) {
         const { data, error } = await supabase

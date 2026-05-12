@@ -1,15 +1,10 @@
-import ExcelJS from 'exceljs';
-
-/**
- * Utility to export beneficiaries data to detailed Excel (.xlsx) with styling
- */
 export const exportBeneficiariesToExcel = async (
     data: Record<string, unknown>[],
     dateRange?: { startDate?: string; endDate?: string }
 ) => {
     if (!data || data.length === 0) return;
 
-    // Create a new workbook and add a worksheet
+    const ExcelJS = (await import('exceljs')).default;
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Beneficiaries');
 

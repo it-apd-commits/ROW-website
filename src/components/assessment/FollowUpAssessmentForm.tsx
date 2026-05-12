@@ -8,7 +8,8 @@ import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
 import { getVASCategory } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
-import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, X, Baby, Dumbbell, Zap, Home, Shield, Wrench } from 'lucide-react';
+import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, X, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff } from 'lucide-react';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { RecommendedExercises } from './RecommendedExercises';
 
 const EI_DOMAINS = [
@@ -60,6 +61,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
     const isEI = condition === 'Early Intervention Assessment';
     const patientId = initialData?.patient_id ?? '';
 
+    const isOnline = useOnlineStatus();
     const [clinicalData, setClinicalData] = useState<ClinicalAssessment | null>(null);
     const [history, setHistory] = useState<FollowUpAssessment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -85,7 +87,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
     const today = new Date().toISOString().split('T')[0];
 
     const latestVasCurrent = (() => {
-        if (condition !== 'Pain') return null;
+        if (condition !== 'Neuro Muscular Painful Condition') return null;
         for (let i = history.length - 1; i >= 0; i--) {
             if (history[i].vas_current != null) return history[i].vas_current;
         }
@@ -282,6 +284,10 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
 
     const handleSubmit = async () => {
         if (!validate()) return;
+        if (isEditMode && !isOnline) {
+            setErrors({ _form: 'Editing a session requires an active connection. Please reconnect and try again.' });
+            return;
+        }
         setIsSaving(true);
         try {
             const payload = buildPayload();
@@ -306,6 +312,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
 
     return (
         <div className="space-y-6">
+            {!isOnline && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-medium">
+                    <WifiOff size={18} className="shrink-0 text-amber-600" />
+                    <span>You are offline. Follow-up sessions will be saved locally and synced when you reconnect.</span>
+                </div>
+            )}
             {errors._form && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{errors._form}</div>
             )}

@@ -7,7 +7,8 @@ import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
 import { getVASCategory } from '@/utils/assessmentLogic';
 import type { ClinicalAssessment, InitialAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
-import { Activity, Save, Loader2, Baby, Dumbbell, Zap, Home, Shield, Wrench } from 'lucide-react';
+import { Activity, Save, Loader2, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff } from 'lucide-react';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { RecommendedExercises } from './RecommendedExercises';
 import { CoreServiceDetails } from './CoreServiceDetails';
 import type { CoreServiceDetailsRef } from './CoreServiceDetails';
@@ -122,6 +123,7 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
         };
     });
 
+    const isOnline = useOnlineStatus();
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSaving, setIsSaving] = useState(false);
     const [serviceData, setServiceData] = useState<ServiceEntryPayload | null>(null);
@@ -213,6 +215,10 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
 
     const handleSubmit = async () => {
         if (!validate()) return;
+        if (isEdit && !isOnline) {
+            setErrors({ _form: 'Editing a clinical assessment requires an active connection. Please reconnect and try again.' });
+            return;
+        }
         setIsSaving(true);
         try {
             // Build payload with nulls for non-relevant condition fields
@@ -320,6 +326,12 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
 
     return (
         <div className="space-y-6">
+            {!isOnline && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-medium">
+                    <WifiOff size={18} className="shrink-0 text-amber-600" />
+                    <span>You are offline. Clinical assessment will be saved locally and synced when you reconnect.</span>
+                </div>
+            )}
             {errors._form && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{errors._form}</div>
             )}
@@ -796,7 +808,7 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
                 </div>
 
                 {/* Home Programme */}
-                <div>
+                <div className="mb-6">
                     <div className="flex items-center gap-2 mb-3">
                         <Home size={16} className="text-green-600" />
                         <h4 className="font-medium text-text-main">Home Programme</h4>

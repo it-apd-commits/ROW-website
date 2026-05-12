@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Save, ArrowLeft, Stethoscope, Clock, ShieldCheck, Heart, DollarSign, FileText, ClipboardList, Plus, X } from 'lucide-react';
+import { Save, ArrowLeft, Stethoscope, Clock, ShieldCheck, Heart, DollarSign, FileText, ClipboardList, Plus, X, WifiOff, Wifi, CheckCircle } from 'lucide-react';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { ServiceEntryService } from '@/services/serviceEntryService';
 import type { ServiceEntry, ServiceEntryPayload } from '@/types/serviceEntry';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 export function ServiceEntryPage() {
     const { id } = useParams<{ id: string }>();
@@ -20,10 +21,13 @@ export function ServiceEntryPage() {
     const navigate = useNavigate();
     const { role } = usePermissions();
     const isAdmin = role === 'Admin';
+    const isOnline = useOnlineStatus();
 
     const [isLoading, setIsLoading] = useState(!!id);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [savedCount, setSavedCount] = useState(0);
     const [followUpOptions, setFollowUpOptions] = useState<{ value: string; label: string }[]>([]);
     const [preselectedBeneficiaryId, setPreselectedBeneficiaryId] = useState<string | null>(beneficiaryIdFromUrl);
 
@@ -86,7 +90,7 @@ export function ServiceEntryPage() {
                 if (!fetchErr && data) {
                     setFormData(prev => ({
                         ...prev,
-                        file_number: data.file_number || data.name
+                        file_number: data.file_number ?? null
                     }));
                 }
             };
@@ -134,6 +138,7 @@ export function ServiceEntryPage() {
     };
 
     const validate = (): boolean => {
+        if (!formData.file_number) { setError('Please select a beneficiary first.'); return false; }
         if (!formData.status) { setError('Status is mandatory'); return false; }
         if (!formData.schedule_date) { setError('Schedule Date is mandatory'); return false; }
         if (!formData.start_date) { setError('Start Date is mandatory'); return false; }
@@ -183,11 +188,16 @@ export function ServiceEntryPage() {
 
         if (!validate()) return;
 
+        if (!isOnline && id) {
+            setError('Editing an existing entry requires an active connection. Please reconnect and try again.');
+            return;
+        }
+
         setIsSaving(true);
         try {
             if (id) {
                 await ServiceEntryService.updateEntry(id, formData);
-                alert('Service entry updated successfully!');
+                setSavedCount(1);
             } else {
                 const rows = selectedServices.filter(s => s.code);
                 await Promise.all(
@@ -199,12 +209,15 @@ export function ServiceEntryPage() {
                         })
                     )
                 );
-                alert(`${rows.length} service ${rows.length === 1 ? 'entry' : 'entries'} saved successfully!`);
+                setSavedCount(rows.length);
             }
-            navigate('/services/history');
+            setShowSuccessModal(true);
         } catch (err: unknown) {
             console.error('Save error:', err);
-            setError(err instanceof Error ? err.message : 'Failed to save service entry');
+            const msg = err instanceof Error
+                ? err.message
+                : (err as { message?: string })?.message ?? 'Failed to save service entry';
+            setError(msg);
         } finally {
             setIsSaving(false);
         }
@@ -240,16 +253,31 @@ export function ServiceEntryPage() {
                         </p>
                     </div>
                 </div>
-                {isAdmin ? (
-                    <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-semibold border border-blue-100">
-                        <ShieldCheck size={14} /> Full Administrative Access
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold ${isOnline ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+                        {isOnline ? <><Wifi size={14} /> <span className="uppercase tracking-wider">Online Mode</span></> : <><WifiOff size={14} /> <span className="uppercase tracking-wider">Offline Mode</span></>}
                     </div>
-                ) : (
-                    <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-semibold border border-green-100">
-                        <ShieldCheck size={14} /> Simplified View Enabled
-                    </div>
-                )}
+                    {isAdmin ? (
+                        <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-semibold border border-blue-100">
+                            <ShieldCheck size={14} /> Full Administrative Access
+                        </div>
+                    ) : (
+                        <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-semibold border border-green-100">
+                            <ShieldCheck size={14} /> Simplified View Enabled
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {!isOnline && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-medium">
+                    <WifiOff size={18} className="shrink-0 text-amber-600" />
+                    <span>
+                        You are offline. New entries will be saved locally and synced automatically when you reconnect.
+                        {id && ' Editing existing entries requires a connection.'}
+                    </span>
+                </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
                 <Card className="p-4 md:p-8 shadow-xl border-t-4 border-t-primary">
@@ -278,7 +306,7 @@ export function ServiceEntryPage() {
                                     <BeneficiarySelect
                                         placeholder="Search Beneficiary (Name / File No)"
                                         onSelect={(b) => {
-                                            handleChange('file_number', b.file_number || b.name);
+                                            handleChange('file_number', b.file_number ?? b.id);
                                             setPreselectedBeneficiaryId(null);
                                         }}
                                         selectedId={preselectedBeneficiaryId || undefined}
@@ -630,6 +658,54 @@ export function ServiceEntryPage() {
                     </p>
                 </Card>
             </div>
+
+            {/* Success Modal */}
+            {showSuccessModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-[90vw] sm:max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-300">
+                        <div className={`p-8 text-center text-white ${isOnline ? 'bg-primary' : 'bg-amber-500'}`}>
+                            <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/30">
+                                {isOnline ? <CheckCircle size={40} className="text-white" /> : <WifiOff size={40} className="text-white" />}
+                            </div>
+                            <h2 className="text-2xl font-black mb-1">{isOnline ? 'Saved!' : 'Saved Offline!'}</h2>
+                            <p className="text-white/80 text-sm">
+                                {id
+                                    ? 'Service entry updated successfully.'
+                                    : isOnline
+                                        ? `${savedCount} service ${savedCount === 1 ? 'entry' : 'entries'} saved to database.`
+                                        : `${savedCount} service ${savedCount === 1 ? 'entry' : 'entries'} saved locally. Will sync automatically when you reconnect.`}
+                            </p>
+                        </div>
+                        <div className="p-8 text-center space-y-4">
+                            <Button
+                                onClick={() => navigate('/services/history')}
+                                className="w-full py-4 rounded-xl text-lg font-bold"
+                            >
+                                View History
+                            </Button>
+                            {!id && (
+                                <button
+                                    onClick={() => {
+                                        setShowSuccessModal(false);
+                                        setSelectedServices([{ code: '', hours: '' }]);
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            file_number: null,
+                                            service_code: '',
+                                            total_hours: 0,
+                                            remarks: ''
+                                        }));
+                                        setPreselectedBeneficiaryId(null);
+                                    }}
+                                    className="w-full text-text-muted hover:text-text-main font-semibold transition-colors py-2"
+                                >
+                                    Add Another Entry
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

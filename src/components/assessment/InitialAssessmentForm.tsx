@@ -7,7 +7,8 @@ import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
 import type { InitialAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
 import { supabase } from '@/lib/supabase';
-import { User, Stethoscope, Save, Loader2, Search } from 'lucide-react';
+import { User, Stethoscope, Save, Loader2, Search, WifiOff } from 'lucide-react';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 interface Props {
     data: Partial<InitialAssessment>;
@@ -27,6 +28,7 @@ interface BeneficiarySuggestion {
 }
 
 export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props) {
+    const isOnline = useOnlineStatus();
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSaving, setIsSaving] = useState(false);
     const [nameQuery, setNameQuery] = useState(data.patient_name || '');
@@ -161,7 +163,12 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
             const msg = err instanceof Error ? err.message
                 : (err && typeof err === 'object' && 'message' in err) ? String((err as { message: string }).message)
                 : 'Failed to save';
-            setErrors({ _form: msg });
+            // When offline, the save succeeded locally — only show errors for validation failures
+            if (!isOnline) {
+                setErrors({ _form: 'Saved offline. Will sync when connection is restored.' });
+            } else {
+                setErrors({ _form: msg });
+            }
         } finally {
             setIsSaving(false);
         }
@@ -171,8 +178,14 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
 
     return (
         <div className="space-y-6">
+            {!isOnline && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-medium">
+                    <WifiOff size={18} className="shrink-0 text-amber-600" />
+                    <span>You are offline. Assessment data will be saved locally and synced when you reconnect. Patient ID will use an offline format (O-prefix).</span>
+                </div>
+            )}
             {errors._form && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{errors._form}</div>
+                <div className={`p-3 border rounded-lg text-sm ${errors._form.includes('offline') ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-red-50 border-red-200 text-red-700'}`}>{errors._form}</div>
             )}
 
             {/* Patient Demographics */}

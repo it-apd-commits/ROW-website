@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/db';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -16,10 +17,12 @@ import {
     History as HistoryIcon,
     ShieldCheck,
     Trash2,
+    WifiOff,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { assessmentService } from '@/services/assessmentService';
 
 interface AssessmentRecord {
@@ -40,6 +43,9 @@ interface AssessmentRecord {
     clinical_count: number;
     follow_up_count: number;
     latest_follow_up_date: string | null;
+    // Offline tracking
+    isOffline?: boolean;
+    sync_status?: 'pending' | 'synced' | 'failed';
 }
 
 export function AssessmentHistoryPage() {
@@ -51,63 +57,101 @@ export function AssessmentHistoryPage() {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const navigate = useNavigate();
     const { canDeleteRecords, canExportData } = usePermissions();
+    const isOnline = useOnlineStatus();
 
     const fetchHistory = useCallback(async () => {
         setIsLoading(true);
         try {
-            // Fetch all initial assessments
-            const { data: initials, error: initError } = await supabase
-                .from('initial_assessment')
-                .select('*')
-                .order('assessment_date', { ascending: false });
+            let mapped: AssessmentRecord[] = [];
 
-            if (initError) throw initError;
-            if (!initials || initials.length === 0) {
-                setRecords([]);
-                return;
+            if (isOnline) {
+                const { data: initials, error: initError } = await supabase
+                    .from('initial_assessment')
+                    .select('*')
+                    .order('assessment_date', { ascending: false });
+
+                if (initError) throw initError;
+
+                if (initials && initials.length > 0) {
+                    const patientIds = initials.map((i: AssessmentRecord) => i.patient_id);
+
+                    const { data: clinicals } = await supabase
+                        .from('clinical_assessment')
+                        .select('patient_id')
+                        .in('patient_id', patientIds);
+
+                    const clinicalSet = new Set((clinicals || []).map((c: { patient_id: string }) => c.patient_id));
+
+                    const { data: followUps } = await supabase
+                        .from('follow_up_assessment')
+                        .select('patient_id, visit_date, session_number')
+                        .in('patient_id', patientIds)
+                        .order('session_number', { ascending: false });
+
+                    const followUpMap = new Map<string, { count: number; latestDate: string | null }>();
+                    (followUps || []).forEach((f: { patient_id: string; visit_date: string; session_number: number }) => {
+                        const existing = followUpMap.get(f.patient_id);
+                        if (!existing) {
+                            followUpMap.set(f.patient_id, { count: 1, latestDate: f.visit_date });
+                        } else {
+                            existing.count++;
+                        }
+                    });
+
+                    mapped = initials.map((i: AssessmentRecord) => ({
+                        ...i,
+                        clinical_count: clinicalSet.has(i.patient_id) ? 1 : 0,
+                        follow_up_count: followUpMap.get(i.patient_id)?.count || 0,
+                        latest_follow_up_date: followUpMap.get(i.patient_id)?.latestDate || null,
+                    }));
+                }
             }
 
-            const patientIds = initials.map(i => i.patient_id);
+            // Merge offline pending records not yet on the server
+            const localPending = await db.offline_initial_assessments
+                .where('sync_status').anyOf(['pending', 'failed'])
+                .toArray();
 
-            // Fetch clinical assessment existence
-            const { data: clinicals } = await supabase
-                .from('clinical_assessment')
-                .select('patient_id')
-                .in('patient_id', patientIds);
+            const serverPatientIds = new Set(mapped.map(r => r.patient_id));
+            const offlineOnly = localPending.filter(r => !serverPatientIds.has(r.patient_id));
 
-            const clinicalSet = new Set((clinicals || []).map(c => c.patient_id));
+            const offlineMapped: AssessmentRecord[] = await Promise.all(
+                offlineOnly.map(async r => {
+                    const clinicalCount = await db.offline_clinical_assessments
+                        .where('patient_id').equals(r.patient_id).count();
+                    const followUps = await db.offline_follow_up_assessments
+                        .where('patient_id').equals(r.patient_id).toArray();
+                    const latestFU = followUps.sort((a, b) => b.session_number - a.session_number)[0];
+                    return {
+                        patient_id: r.patient_id,
+                        assessment_date: r.assessment_date,
+                        patient_name: r.patient_name,
+                        age: r.age,
+                        gender: r.gender,
+                        phone: r.phone,
+                        village: r.village,
+                        primary_condition: r.primary_condition,
+                        chief_complaint: r.chief_complaint,
+                        side_of_limb_affected: r.side_of_limb_affected,
+                        joint_involved: r.joint_involved,
+                        document_type: r.document_type,
+                        created_at: r.created_at ?? new Date().toISOString(),
+                        clinical_count: clinicalCount,
+                        follow_up_count: followUps.length,
+                        latest_follow_up_date: latestFU?.visit_date ?? null,
+                        isOffline: true,
+                        sync_status: r.sync_status,
+                    };
+                })
+            );
 
-            // Fetch follow-up counts and latest dates
-            const { data: followUps } = await supabase
-                .from('follow_up_assessment')
-                .select('patient_id, visit_date, session_number')
-                .in('patient_id', patientIds)
-                .order('session_number', { ascending: false });
-
-            const followUpMap = new Map<string, { count: number; latestDate: string | null }>();
-            (followUps || []).forEach(f => {
-                const existing = followUpMap.get(f.patient_id);
-                if (!existing) {
-                    followUpMap.set(f.patient_id, { count: 1, latestDate: f.visit_date });
-                } else {
-                    existing.count++;
-                }
-            });
-
-            const mapped: AssessmentRecord[] = initials.map(i => ({
-                ...i,
-                clinical_count: clinicalSet.has(i.patient_id) ? 1 : 0,
-                follow_up_count: followUpMap.get(i.patient_id)?.count || 0,
-                latest_follow_up_date: followUpMap.get(i.patient_id)?.latestDate || null,
-            }));
-
-            setRecords(mapped);
+            setRecords([...offlineMapped, ...mapped]);
         } catch (error) {
             console.error('Error fetching assessment history:', error);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [isOnline]);
 
     useEffect(() => {
         fetchHistory();
@@ -142,6 +186,7 @@ export function AssessmentHistoryPage() {
     const topCondition = Object.entries(conditionBreakdown).sort((a, b) => b[1] - a[1])[0];
 
     const handleExport = async () => {
+        const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
         const ws = workbook.addWorksheet('Assessment History');
 
@@ -390,28 +435,35 @@ export function AssessmentHistoryPage() {
                                             )}
                                         </td>
                                         <td className="py-5 pr-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                                <Button
-                                                    variant="secondary"
-                                                    className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-blue-50 text-blue-600 border-none hover:bg-blue-100"
-                                                    onClick={() => navigate(`/assessments/view/${r.patient_id}`)}
-                                                >
-                                                    <Eye size={14} /> View
-                                                </Button>
-                                                {canDeleteRecords && (
+                                            {r.isOffline ? (
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${r.sync_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    <WifiOff size={10} />
+                                                    {r.sync_status === 'failed' ? 'Sync Failed' : 'Pending Sync'}
+                                                </span>
+                                            ) : (
+                                                <div className="flex items-center justify-end gap-2">
                                                     <Button
                                                         variant="secondary"
-                                                        className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-red-50 text-red-600 border-none hover:bg-red-100"
-                                                        onClick={() => handleDelete(r.patient_id, r.patient_name)}
-                                                        disabled={deletingId === r.patient_id}
+                                                        className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-blue-50 text-blue-600 border-none hover:bg-blue-100"
+                                                        onClick={() => navigate(`/assessments/view/${r.patient_id}`)}
                                                     >
-                                                        {deletingId === r.patient_id
-                                                            ? <span className="w-3.5 h-3.5 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />
-                                                            : <Trash2 size={14} />}
-                                                        Delete
+                                                        <Eye size={14} /> View
                                                     </Button>
-                                                )}
-                                            </div>
+                                                    {canDeleteRecords && (
+                                                        <Button
+                                                            variant="secondary"
+                                                            className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-red-50 text-red-600 border-none hover:bg-red-100"
+                                                            onClick={() => handleDelete(r.patient_id, r.patient_name)}
+                                                            disabled={deletingId === r.patient_id}
+                                                        >
+                                                            {deletingId === r.patient_id
+                                                                ? <span className="w-3.5 h-3.5 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />
+                                                                : <Trash2 size={14} />}
+                                                            Delete
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

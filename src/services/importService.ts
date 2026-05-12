@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/db';
-import ExcelJS from 'exceljs';
 
 export interface ImportSummary {
     total: number;
@@ -20,6 +19,7 @@ export const importFileNumbers = async (file: File): Promise<ImportSummary> => {
     };
 
     try {
+        const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(await file.arrayBuffer());
         const worksheet = workbook.getWorksheet(1);

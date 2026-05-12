@@ -7,7 +7,7 @@ export function useOnlineStatus() {
     useEffect(() => {
         const handleOnline = () => {
             setIsOnline(true);
-            SyncService.syncPendingRecords();
+            SyncService.syncPendingRecords().catch(console.error);
         };
 
         const handleOffline = () => setIsOnline(false);

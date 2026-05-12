@@ -81,39 +81,62 @@ export function DashboardPage() {
         const fetchDashboardData = async () => {
             setIsLoading(true);
             try {
-                // 1. Fetch registered beneficiaries in period
+                // Build filtered queries
                 let bQuery = supabase
                     .from('beneficiaries')
                     .select('*', { count: 'exact', head: true });
-
                 if (globalFilter.startDate) bQuery = bQuery.gte('date_of_registration', globalFilter.startDate);
                 if (globalFilter.endDate) bQuery = bQuery.lte('date_of_registration', globalFilter.endDate);
 
-                const { count: beneficiaryCount, error: bError } = await bQuery;
-                if (bError) throw bError;
-
-                // 2. Fetch stats from 'trips' table in period
-                let tQuery = supabase
-                    .from('trips')
-                    .select('bus_number');
-
+                let tQuery = supabase.from('trips').select('bus_number');
                 if (globalFilter.startDate) tQuery = tQuery.gte('date', globalFilter.startDate);
                 if (globalFilter.endDate) tQuery = tQuery.lte('date', globalFilter.endDate);
 
-                const { data: trips, error: tError } = await tQuery;
-                if (tError) throw tError;
-
-                // 3. Fetch total services provided in period
                 let sQuery = supabase
                     .from('service_entries')
                     .select('*', { count: 'exact', head: true });
-
                 if (globalFilter.startDate) sQuery = sQuery.gte('schedule_date', globalFilter.startDate);
                 if (globalFilter.endDate) sQuery = sQuery.lte('schedule_date', globalFilter.endDate);
 
-                const { count: servicesCount, error: srvError } = await sQuery;
-                if (srvError) throw srvError;
+                const currentDate = new Date();
+                const todayStr = currentDate.toISOString().split('T')[0];
 
+                const futureDate = new Date();
+                futureDate.setDate(futureDate.getDate() + 7);
+                const futureDateStr = futureDate.toISOString().split('T')[0];
+
+                // Run all 5 queries in parallel
+                const [
+                    { count: beneficiaryCount, error: bError },
+                    { data: trips, error: tError },
+                    { count: servicesCount, error: srvError },
+                    { data: schedules, error: sError },
+                    { count: missedCount },
+                ] = await Promise.all([
+                    bQuery,
+                    tQuery,
+                    sQuery,
+                    supabase
+                        .from('monthly_schedules')
+                        .select('location_name, scheduled_date, status')
+                        .eq('is_active', true)
+                        .gte('scheduled_date', todayStr)
+                        .order('scheduled_date', { ascending: true })
+                        .limit(10),
+                    supabase
+                        .from('monthly_schedules')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('is_active', true)
+                        .lt('scheduled_date', todayStr)
+                        .is('trip_id', null)
+                        .neq('status', 'completed')
+                        .neq('status', 'cancelled'),
+                ]);
+
+                if (bError) throw bError;
+                if (tError) throw tError;
+                if (srvError) throw srvError;
+                if (sError) throw sError;
 
                 const uniqueBuses = trips ? new Set(trips.map(t => t.bus_number)).size : 0;
                 const campsConducted = trips ? trips.length : 0;
@@ -122,66 +145,32 @@ export function DashboardPage() {
                     totalBeneficiaries: beneficiaryCount || 0,
                     activeBuses: uniqueBuses,
                     campsConducted,
-                    servicesProvided: servicesCount || 0
+                    servicesProvided: servicesCount || 0,
                 });
 
-                // 4. Fetch upcoming camps from monthly_schedules (This usually stays independent of history filter)
-                const currentDate = new Date();
-                const { data: schedules, error: sError } = await supabase
-                    .from('monthly_schedules')
-                    .select('*')
-                    .eq('is_active', true)
-                    .gte('scheduled_date', currentDate.toISOString().split('T')[0])
-                    .order('scheduled_date', { ascending: true })
-                    .limit(4);
-
-                if (sError) throw sError;
-
                 if (schedules) {
-                    const mappedCamps: MappedCamp[] = schedules.map(camp => ({
+                    const upcomingList = schedules.slice(0, 4);
+                    const mappedCamps: MappedCamp[] = upcomingList.map(camp => ({
                         location: camp.location_name,
                         date: new Date(camp.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-                        type: camp.status === 'completed' ? 'Completed' : 'Screening Camp'
+                        type: camp.status === 'completed' ? 'Completed' : 'Screening Camp',
                     }));
                     setUpcomingCamps(mappedCamps);
-                }
 
-                // 5. Fetch upcoming alerts (next 7 days) for manager notification
-                const futureDate = new Date();
-                futureDate.setDate(futureDate.getDate() + 7);
-                const futureDateStr = futureDate.toISOString().split('T')[0];
-
-                const { data: alertSchedules } = await supabase
-                    .from('monthly_schedules')
-                    .select('location_name, scheduled_date')
-                    .eq('is_active', true)
-                    .gte('scheduled_date', currentDate.toISOString().split('T')[0])
-                    .lte('scheduled_date', futureDateStr)
-                    .order('scheduled_date', { ascending: true });
-
-                if (alertSchedules) {
                     const todayMs = currentDate.getTime();
-                    const alerts: UpcomingAlert[] = alertSchedules.map(s => {
-                        const campDate = new Date(s.scheduled_date + 'T00:00:00');
-                        const diffDays = Math.ceil((campDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
-                        return {
-                            location: s.location_name,
-                            date: campDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-                            daysUntil: diffDays
-                        };
-                    });
+                    const alerts: UpcomingAlert[] = schedules
+                        .filter(s => s.scheduled_date <= futureDateStr)
+                        .map(s => {
+                            const campDate = new Date(s.scheduled_date + 'T00:00:00');
+                            const diffDays = Math.ceil((campDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
+                            return {
+                                location: s.location_name,
+                                date: campDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                                daysUntil: diffDays,
+                            };
+                        });
                     setUpcomingAlerts(alerts);
                 }
-
-                // 6. Fetch missed camps count (past scheduled, no trip, not completed/cancelled)
-                const { count: missedCount } = await supabase
-                    .from('monthly_schedules')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('is_active', true)
-                    .lt('scheduled_date', currentDate.toISOString().split('T')[0])
-                    .is('trip_id', null)
-                    .neq('status', 'completed')
-                    .neq('status', 'cancelled');
 
                 setMissedCampCount(missedCount || 0);
 

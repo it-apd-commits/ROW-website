@@ -103,6 +103,7 @@ export function ReportsPage() {
     const pct = (n: number) => evaluableCount > 0 ? `${((n / evaluableCount) * 100).toFixed(1)}%` : '—';
 
     const handleExport = async () => {
+        const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
         const scaleName = activeScale?.label || scaleId;
 

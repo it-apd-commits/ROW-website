@@ -119,21 +119,10 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
         clinicalQuery = clinicalQuery.eq('disability_type', filters.disabilityType);
     }
 
-    const { data: clinicals, error: clinErr } = await clinicalQuery;
-    if (clinErr) throw clinErr;
-    if (!clinicals || clinicals.length === 0) return [];
-
-    const baselineMap = new Map<string, BaselineRecord>();
-    for (const c of clinicals as BaselineRecord[]) {
-        if (!baselineMap.has(c.patient_id)) {
-            baselineMap.set(c.patient_id, c);
-        }
-    }
-
     let followUpQuery = supabase
         .from('follow_up_assessment')
         .select('*')
-        .in('patient_id', Array.from(baselineMap.keys()))
+        .in('patient_id', patientIds)
         .order('visit_date', { ascending: false });
 
     if (filters.fromDate) {
@@ -143,7 +132,13 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
         followUpQuery = followUpQuery.lte('visit_date', filters.toDate);
     }
 
-    const { data: followUps, error: fuErr } = await followUpQuery;
+    const [
+        { data: clinicals, error: clinErr },
+        { data: followUps, error: fuErr },
+    ] = await Promise.all([clinicalQuery, followUpQuery]);
+
+    if (clinErr) throw clinErr;
+    if (!clinicals || clinicals.length === 0) return [];
     if (fuErr) throw fuErr;
 
     const latestFollowUpMap = new Map<string, FollowUpRecord>();

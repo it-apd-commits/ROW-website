@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bus, Save, Calculator, MapPin, Clock, Fuel, Edit2, CheckCircle, Zap } from 'lucide-react';
+import { Bus, Save, Calculator, MapPin, Clock, Fuel, Edit2, CheckCircle, Zap, AlertCircle, ChevronDown } from 'lucide-react';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
@@ -47,6 +47,8 @@ export function TripEntryPage() {
     const [isCalculating, setIsCalculating] = useState(false);
     const [dynamicLocations, setDynamicLocations] = useState<string[]>([]);
     const [todayScheduledLocation, setTodayScheduledLocation] = useState<string | null>(null);
+    const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
+    const locationRef = useRef<HTMLDivElement>(null);
 
     // Load trip data in edit mode
     useEffect(() => {
@@ -271,6 +273,17 @@ export function TripEntryPage() {
         }
     };
 
+    // Close location dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (locationRef.current && !locationRef.current.contains(e.target as Node)) {
+                setLocationDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
@@ -433,20 +446,75 @@ export function TripEntryPage() {
                                     <Calculator size={16} />
                                     Method 1: Auto-Calculate from Location (Recommended)
                                 </h4>
-                                <Select
-                                    label="Select Location"
-                                    name="location"
-                                    value={formData.location}
-                                    onChange={handleChange}
-                                    options={[
-                                        { value: '', label: '-- Select Location --' },
-                                        ...dynamicLocations.map(loc => ({ value: loc, label: loc }))
-                                    ]}
-                                    required
-                                />
+
+                                {/* Location combobox — dropdown + free text */}
+                                <div className="relative" ref={locationRef}>
+                                    <label className="block text-sm font-medium text-text-main mb-1.5">
+                                        Location <span className="text-red-500">*</span>
+                                        <span className="ml-2 text-[11px] font-normal text-gray-400">Select from list or type a new location</span>
+                                    </label>
+                                    <div className="relative">
+                                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+                                        <input
+                                            type="text"
+                                            name="location"
+                                            value={formData.location}
+                                            onChange={(e) => {
+                                                setFormData(prev => ({ ...prev, location: e.target.value }));
+                                                setLocationDropdownOpen(true);
+                                            }}
+                                            onFocus={() => setLocationDropdownOpen(true)}
+                                            placeholder="Search scheduled locations or type a new one..."
+                                            className="w-full pl-9 pr-9 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm"
+                                            required
+                                            autoComplete="off"
+                                        />
+                                        <button
+                                            type="button"
+                                            tabIndex={-1}
+                                            onClick={() => setLocationDropdownOpen(o => !o)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                        >
+                                            <ChevronDown size={16} className={`transition-transform ${locationDropdownOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+                                    </div>
+
+                                    {/* Suggestion dropdown */}
+                                    {locationDropdownOpen && (() => {
+                                        const suggestions = dynamicLocations.filter(loc =>
+                                            !formData.location || loc.toLowerCase().includes(formData.location.toLowerCase())
+                                        );
+                                        return suggestions.length > 0 ? (
+                                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                                {suggestions.map(loc => (
+                                                    <button
+                                                        key={loc}
+                                                        type="button"
+                                                        onMouseDown={() => {
+                                                            setFormData(prev => ({ ...prev, location: loc }));
+                                                            setLocationDropdownOpen(false);
+                                                        }}
+                                                        className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 hover:bg-primary/5 hover:text-primary transition-colors ${formData.location === loc ? 'bg-primary/5 text-primary font-semibold' : 'text-gray-700'}`}
+                                                    >
+                                                        <MapPin size={13} className="shrink-0 text-gray-400" />
+                                                        {loc}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : null;
+                                    })()}
+                                </div>
+
+                                {/* Status hints */}
                                 {todayScheduledLocation && formData.location === todayScheduledLocation && (
                                     <p className="text-sm text-green-700 mt-2 flex items-center gap-1">
                                         <CheckCircle size={14} /> Auto-suggested: This location is scheduled for today
+                                    </p>
+                                )}
+                                {formData.location && !dynamicLocations.includes(formData.location) && (
+                                    <p className="text-xs text-amber-700 mt-2 flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-3 py-2 rounded-lg">
+                                        <AlertCircle size={13} className="shrink-0" />
+                                        Custom location — distance won't auto-calculate. Use odometer readings (Method 2) below to record the distance.
                                     </p>
                                 )}
                                 {isCalculating && (
@@ -635,7 +703,7 @@ export function TripEntryPage() {
                         <Button
                             type="submit"
                             className="w-full sm:w-40 flex items-center justify-center gap-2"
-                            disabled={!calculatedData.distance || !formData.location}
+                            disabled={!formData.location || (!calculatedData.distance && dynamicLocations.includes(formData.location))}
                         >
                             <Save size={18} />
                             {isEditMode ? 'Update Trip' : 'Save Trip'}
