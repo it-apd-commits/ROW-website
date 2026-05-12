@@ -19,7 +19,6 @@ import {
     Trash2,
     WifiOff,
 } from 'lucide-react';
-import ExcelJS from 'exceljs';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';

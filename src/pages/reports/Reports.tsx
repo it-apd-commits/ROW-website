@@ -20,7 +20,6 @@ import { getOutcomes, summarize } from '@/services/outcomeEvaluationService';
 import { getAllScales, getConditions, getScalesByCondition } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters } from '@/types/outcomeEvaluation';
-import ExcelJS from 'exceljs';
 
 const ALL_SCALES = getAllScales();
 const CONDITIONS = getConditions();

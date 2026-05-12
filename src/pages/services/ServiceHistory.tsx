@@ -26,7 +26,6 @@ import {
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
-import ExcelJS from 'exceljs';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
 interface ExtendedServiceRecord extends ServiceEntry {

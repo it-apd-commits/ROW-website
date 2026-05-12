@@ -111,6 +111,7 @@ export const exportBeneficiariesToExcel = async (
  * Utility to download a sample format for file number import
  */
 export const downloadSampleImportFile = async () => {
+    const ExcelJS = (await import('exceljs')).default;
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Sample_Import');
 

@@ -141,6 +141,13 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
     if (!clinicals || clinicals.length === 0) return [];
     if (fuErr) throw fuErr;
 
+    const baselineMap = new Map<string, BaselineRecord>();
+    for (const c of clinicals as BaselineRecord[]) {
+        if (!baselineMap.has(c.patient_id)) {
+            baselineMap.set(c.patient_id, c);
+        }
+    }
+
     const latestFollowUpMap = new Map<string, FollowUpRecord>();
     if (followUps) {
         for (const f of followUps as FollowUpRecord[]) {
