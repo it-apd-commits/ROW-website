@@ -33,6 +33,8 @@ export function AdminControlPage() {
     const [logFromDate, setLogFromDate] = useState('');
     const [logToDate, setLogToDate] = useState('');
     const [logPage, setLogPage] = useState(1);
+    const [logsError, setLogsError] = useState<string | null>(null);
+    const [logsLoading, setLogsLoading] = useState(false);
 
     useEffect(() => {
         if (role === 'Admin') fetchUsers();
@@ -53,11 +55,24 @@ export function AdminControlPage() {
     };
 
     const fetchLogs = async () => {
+        setLogsLoading(true);
+        setLogsError(null);
         try {
-            const { data } = await supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(200);
-            if (data) setLogs(data);
+            const { data, error } = await supabase
+                .from('audit_logs')
+                .select('*, profiles(full_name)')
+                .order('created_at', { ascending: false })
+                .limit(200);
+            if (error) {
+                setLogsError(error.message);
+                return;
+            }
+            setLogs(data || []);
         } catch (e) {
-            console.error('Logs fetch error type:', e);
+            const msg = e instanceof Error ? e.message : 'Unexpected error loading logs.';
+            setLogsError(msg);
+        } finally {
+            setLogsLoading(false);
         }
     };
 
@@ -393,10 +408,23 @@ export function AdminControlPage() {
                             <h3 className="font-bold text-lg">System Audit Logs</h3>
                             <p className="text-xs text-text-muted mt-0.5">{filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''} found</p>
                         </div>
-                        <Button variant="outline" className="text-xs py-1 px-3 self-start sm:self-auto" onClick={fetchLogs}>
-                            <RefreshCw size={14} className="mr-1" /> Refresh
+                        <Button variant="outline" className="text-xs py-1 px-3 self-start sm:self-auto" onClick={fetchLogs} disabled={logsLoading}>
+                            <RefreshCw size={14} className={`mr-1 ${logsLoading ? 'animate-spin' : ''}`} /> Refresh
                         </Button>
                     </div>
+
+                    {/* Error banner */}
+                    {logsError && (
+                        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                            <p className="font-semibold mb-1">Failed to load audit logs</p>
+                            <p className="text-xs font-mono break-all">{logsError}</p>
+                            {logsError.includes('does not exist') && (
+                                <p className="mt-2 text-xs text-red-600 font-medium">
+                                    The <code className="bg-red-100 px-1 rounded">audit_logs</code> table is missing. Run the setup SQL in Supabase Dashboard → SQL Editor.
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     {/* Filters */}
                     <div className="flex flex-wrap gap-3 mb-5 p-3 bg-gray-50 rounded-xl border border-gray-100">
@@ -498,10 +526,12 @@ export function AdminControlPage() {
                     ) : (
                         <div className="mt-4 p-10 border border-dashed border-gray-200 rounded-xl text-center bg-gray-50">
                             <Activity className="mx-auto text-gray-300 mb-3" size={36} />
-                            <p className="text-text-muted font-medium">No audit logs found.</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                                {logs.length > 0 ? 'Try adjusting your filters.' : 'Make sure the audit_logs table exists in Supabase.'}
+                            <p className="text-text-muted font-medium">
+                                {logsLoading ? 'Loading...' : logs.length > 0 ? 'No logs match the current filters.' : 'No audit logs yet.'}
                             </p>
+                            {!logsLoading && logs.length === 0 && !logsError && (
+                                <p className="text-xs text-gray-400 mt-1">Logs will appear here as users perform actions in the app.</p>
+                            )}
                         </div>
                     )}
                 </Card>
