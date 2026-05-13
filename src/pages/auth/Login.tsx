@@ -134,13 +134,13 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <img
         src="/logo.jpg"
         alt="APD"
-        className="absolute top-4 right-4 w-20 sm:w-29 h-auto rounded-lg shadow-md"
+        className="fixed top-3 right-3 sm:top-4 sm:right-4 w-11 sm:w-16 md:w-20 h-auto rounded-lg shadow-md z-10"
       />
-      <h1 className="w-full text-center text-xl sm:text-2xl md:text-3xl font-extrabold text-text-main mb-6 leading-tight whitespace-nowrap">
+      <h1 className="w-full max-w-md text-center text-base sm:text-xl md:text-2xl lg:text-3xl font-extrabold text-text-main mb-6 leading-tight">
         The Association of People with Disability
       </h1>
       <div className="w-full max-w-md">
