@@ -30,6 +30,15 @@ export function AppLayout() {
                         <Outlet />
                     </div>
                 </main>
+
+                <footer className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 px-4 md:px-8 py-2 border-t border-gray-100 bg-white text-[11px] text-text-muted">
+                    <span>
+                        &copy; {new Date().getFullYear()} <span className="font-semibold text-primary">Rehab on Wheels</span> &mdash; The Association of People with Disability
+                    </span>
+                    <span className="font-medium text-gray-400 sm:text-right">
+                        Developed by <span className="text-primary font-semibold">APD IT</span>
+                    </span>
+                </footer>
             </div>
         </div>
     );
