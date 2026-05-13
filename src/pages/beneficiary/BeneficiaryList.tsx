@@ -10,6 +10,7 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { ImportFileNumbersModal } from '@/components/beneficiary/ImportFileNumbersModal';
+import { auditService } from '@/services/auditService';
 import { FileUp } from 'lucide-react';
 import type { OfflineBeneficiary } from '@/lib/db';
 
@@ -94,6 +95,7 @@ export function BeneficiaryListPage() {
                 if (error && !localRecord) throw error;
             }
 
+            await auditService.log('BENEFICIARY_DELETED', { beneficiary_id: id, name });
             setBeneficiaries(prev => prev.filter(b => b.id !== id));
             setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
         } catch (error) {
@@ -121,6 +123,7 @@ export function BeneficiaryListPage() {
                 if (error) console.error('Server bulk delete failed:', error);
             }
 
+            await auditService.log('BENEFICIARY_BULK_DELETED', { count: selectedIds.length });
             setBeneficiaries(prev => prev.filter(b => !b.id || !selectedIds.includes(b.id)));
             setSelectedIds([]);
         } catch (error) {

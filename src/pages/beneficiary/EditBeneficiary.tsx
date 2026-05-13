@@ -7,6 +7,7 @@ import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import { Save, ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { auditService } from '@/services/auditService';
 
 export function EditBeneficiaryPage() {
     const { id } = useParams();
@@ -121,6 +122,7 @@ export function EditBeneficiaryPage() {
                 .eq('id', id);
 
             if (error) throw error;
+            await auditService.log('BENEFICIARY_UPDATED', { beneficiary_id: id, name: formData.name });
             navigate(`/beneficiary/${id}`);
         } catch (error) {
             console.error('Error updating beneficiary:', error);

@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/db';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { auditService } from '@/services/auditService';
 
 
 export function AddBeneficiaryPage() {
@@ -123,6 +124,7 @@ export function AddBeneficiaryPage() {
                     .eq('id', completeId);
 
                 if (error) throw error;
+                await auditService.log('BENEFICIARY_REGISTRATION_COMPLETED', { beneficiary_id: completeId, name: formData.name });
                 setShowSuccessModal(true);
                 return;
             }
@@ -157,6 +159,7 @@ export function AddBeneficiaryPage() {
                 }
             }
 
+            await auditService.log('BENEFICIARY_CREATED', { name: formData.name, offline: !isOnline });
             setShowSuccessModal(true);
         } catch (error) {
             console.error('Error saving beneficiary:', error);

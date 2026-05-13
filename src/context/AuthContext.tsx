@@ -5,6 +5,7 @@ import type { User, Session } from '@supabase/supabase-js';
 import type { UserRole, UserProfile } from '@/types/rbac';
 
 import { AuthContext } from './AuthContextObject';
+import { auditService } from '@/services/auditService';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -84,10 +85,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
 
         // Listen for changes on auth state
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             setSession(session);
             setUser(session?.user ?? null);
             if (session?.user) {
+                if (event === 'SIGNED_IN') {
+                    auditService.log('SIGNED_IN', { email: session.user.email }, session.user.id);
+                }
                 fetchProfile(session.user.id, session.user.email);
             } else {
                 setProfile(null);
@@ -100,6 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const logout = async () => {
+        if (user) {
+            await auditService.log('SIGNED_OUT', { email: user.email }, user.id);
+        }
         await supabase.auth.signOut();
         setProfile(null);
         setRole('Staff');

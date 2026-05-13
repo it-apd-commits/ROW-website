@@ -7,6 +7,7 @@ import { FollowUpAssessmentForm } from '@/components/assessment/FollowUpAssessme
 import { Loader } from '@/components/common/Loader';
 import { assessmentService } from '@/services/assessmentService';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { auditService } from '@/services/auditService';
 import type { InitialAssessment, ClinicalAssessment } from '@/types/assessment';
 
 type Step = 1 | 2 | 3;
@@ -81,6 +82,7 @@ export function AssessmentEntryPage() {
         if (clinicalData && clinicalData.condition !== saved.primary_condition) {
             setClinicalData(null);
         }
+        auditService.log('ASSESSMENT_INITIAL_SAVED', { patient_id: saved.patient_id, patient_name: saved.patient_name, condition: saved.primary_condition, offline: !isOnline });
         setSaveNotice({
             message: isOnline ? 'Initial assessment saved successfully.' : 'Initial assessment saved offline — will sync when reconnected.',
             offline: !isOnline,
@@ -91,6 +93,7 @@ export function AssessmentEntryPage() {
     // Handle Step 2 saved
     const handleClinicalSaved = (saved: ClinicalAssessment) => {
         setClinicalData(saved);
+        auditService.log('ASSESSMENT_CLINICAL_SAVED', { patient_id: saved.patient_id, condition: saved.condition, offline: !isOnline });
         setSaveNotice({
             message: isOnline ? 'Clinical assessment saved successfully.' : 'Clinical assessment saved offline — will sync when reconnected.',
             offline: !isOnline,

@@ -13,6 +13,7 @@ import { ServiceEntryService } from '@/services/serviceEntryService';
 import type { ServiceEntry, ServiceEntryPayload } from '@/types/serviceEntry';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { auditService } from '@/services/auditService';
 
 export function ServiceEntryPage() {
     const { id } = useParams<{ id: string }>();
@@ -198,6 +199,7 @@ export function ServiceEntryPage() {
             if (id) {
                 await ServiceEntryService.updateEntry(id, formData);
                 setSavedCount(1);
+                await auditService.log('SERVICE_ENTRY_UPDATED', { entry_id: id, service_code: formData.service_code, file_number: formData.file_number });
             } else {
                 const rows = selectedServices.filter(s => s.code);
                 await Promise.all(
@@ -210,6 +212,7 @@ export function ServiceEntryPage() {
                     )
                 );
                 setSavedCount(rows.length);
+                await auditService.log('SERVICE_ENTRY_CREATED', { count: rows.length, file_number: formData.file_number, offline: !isOnline });
             }
             setShowSuccessModal(true);
         } catch (err: unknown) {

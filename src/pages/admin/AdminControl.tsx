@@ -4,7 +4,7 @@ import { Button } from '@/components/common/Button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { type UserRole, type UserProfile } from '@/types/rbac';
-import { Shield, Users, Activity, Lock, Search, Check, X, RefreshCw, Key, FileUp, Trash2 } from 'lucide-react';
+import { Shield, Users, Activity, Lock, Search, Check, X, RefreshCw, Key, FileUp, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ScheduleUpload } from '@/components/admin/ScheduleUpload';
 import { ScheduleHistory } from '@/components/admin/ScheduleHistory';
 
@@ -29,6 +29,10 @@ export function AdminControlPage() {
     const [deleteModal, setDeleteModal] = useState<{ open: boolean; userId: string; userName: string; userEmail: string } | null>(null);
     const [deleteConfirmText, setDeleteConfirmText] = useState('');
     const [deleting, setDeleting] = useState(false);
+    const [logActionFilter, setLogActionFilter] = useState('');
+    const [logFromDate, setLogFromDate] = useState('');
+    const [logToDate, setLogToDate] = useState('');
+    const [logPage, setLogPage] = useState(1);
 
     useEffect(() => {
         if (role === 'Admin') fetchUsers();
@@ -50,12 +54,51 @@ export function AdminControlPage() {
 
     const fetchLogs = async () => {
         try {
-            const { data } = await supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(50);
+            const { data } = await supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(200);
             if (data) setLogs(data);
         } catch (e) {
             console.error('Logs fetch error type:', e);
         }
     };
+
+    const LOGS_PER_PAGE = 15;
+
+    const ACTION_COLORS: Record<string, string> = {
+        SIGNED_IN: 'bg-green-100 text-green-700',
+        SIGNED_OUT: 'bg-gray-100 text-gray-600',
+        BENEFICIARY_CREATED: 'bg-blue-100 text-blue-700',
+        BENEFICIARY_UPDATED: 'bg-indigo-100 text-indigo-700',
+        BENEFICIARY_DELETED: 'bg-red-100 text-red-700',
+        BENEFICIARY_BULK_DELETED: 'bg-red-200 text-red-800',
+        BENEFICIARY_REGISTRATION_COMPLETED: 'bg-teal-100 text-teal-700',
+        SERVICE_ENTRY_CREATED: 'bg-purple-100 text-purple-700',
+        SERVICE_ENTRY_UPDATED: 'bg-violet-100 text-violet-700',
+        ASSESSMENT_INITIAL_SAVED: 'bg-amber-100 text-amber-700',
+        ASSESSMENT_CLINICAL_SAVED: 'bg-orange-100 text-orange-700',
+        ASSESSMENT_DELETED: 'bg-red-100 text-red-700',
+        ROLE_CHANGE: 'bg-yellow-100 text-yellow-700',
+        PASSWORD_RESET: 'bg-sky-100 text-sky-700',
+        STATUS_CHANGE: 'bg-lime-100 text-lime-700',
+        USER_DELETED: 'bg-red-200 text-red-800',
+    };
+
+    const renderDetails = (details: Record<string, unknown>): string => {
+        const entries = Object.entries(details || {});
+        if (entries.length === 0) return '—';
+        return entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' • ');
+    };
+
+    const uniqueActions = Array.from(new Set(logs.map(l => l.action))).sort();
+
+    const filteredLogs = logs.filter(l => {
+        if (logActionFilter && l.action !== logActionFilter) return false;
+        if (logFromDate && l.created_at.slice(0, 10) < logFromDate) return false;
+        if (logToDate && l.created_at.slice(0, 10) > logToDate) return false;
+        return true;
+    });
+
+    const totalPages = Math.max(1, Math.ceil(filteredLogs.length / LOGS_PER_PAGE));
+    const pagedLogs = filteredLogs.slice((logPage - 1) * LOGS_PER_PAGE, logPage * LOGS_PER_PAGE);
 
     const logAction = async (action: string, details: object) => {
         try {
@@ -344,38 +387,121 @@ export function AdminControlPage() {
 
             {activeTab === 'logs' && (
                 <Card className="p-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-lg">System Audit Logs</h3>
-                        <Button variant="outline" className="text-xs py-1 px-3" onClick={fetchLogs}><RefreshCw size={14} className="mr-1" /> Refresh</Button>
-                    </div>
-                    {logs.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-text-muted uppercase text-xs">
-                                    <tr>
-                                        <th className="p-3">Time</th>
-                                        <th className="p-3">User</th>
-                                        <th className="p-3">Action</th>
-                                        <th className="p-3">Details</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {logs.map((log: AuditLog) => (
-                                        <tr key={log.id}>
-                                            <td className="p-3 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                                            <td className="p-3">{log.profiles?.full_name || 'Unknown'}</td>
-                                            <td className="p-3 font-medium">{log.action}</td>
-                                            <td className="p-3 text-text-muted font-mono text-xs">{JSON.stringify(log.details)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                        <div>
+                            <h3 className="font-bold text-lg">System Audit Logs</h3>
+                            <p className="text-xs text-text-muted mt-0.5">{filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''} found</p>
                         </div>
+                        <Button variant="outline" className="text-xs py-1 px-3 self-start sm:self-auto" onClick={fetchLogs}>
+                            <RefreshCw size={14} className="mr-1" /> Refresh
+                        </Button>
+                    </div>
+
+                    {/* Filters */}
+                    <div className="flex flex-wrap gap-3 mb-5 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <select
+                            value={logActionFilter}
+                            onChange={e => { setLogActionFilter(e.target.value); setLogPage(1); }}
+                            className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary min-w-[160px]"
+                        >
+                            <option value="">All Actions</option>
+                            {uniqueActions.map(a => (
+                                <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>
+                            ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-text-muted font-medium">From</span>
+                            <input
+                                type="date"
+                                value={logFromDate}
+                                onChange={e => { setLogFromDate(e.target.value); setLogPage(1); }}
+                                className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-text-muted font-medium">To</span>
+                            <input
+                                type="date"
+                                value={logToDate}
+                                onChange={e => { setLogToDate(e.target.value); setLogPage(1); }}
+                                className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                        </div>
+                        {(logActionFilter || logFromDate || logToDate) && (
+                            <button
+                                onClick={() => { setLogActionFilter(''); setLogFromDate(''); setLogToDate(''); setLogPage(1); }}
+                                className="text-xs font-bold text-red-500 hover:text-red-600 px-2 py-2 bg-red-50 rounded-lg border border-red-100"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
+
+                    {pagedLogs.length > 0 ? (
+                        <>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left min-w-[700px]">
+                                    <thead className="bg-gray-50 border-b border-gray-100">
+                                        <tr className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                                            <th className="px-3 py-3 w-40">Time</th>
+                                            <th className="px-3 py-3 w-36">User</th>
+                                            <th className="px-3 py-3 w-56">Action</th>
+                                            <th className="px-3 py-3">Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50">
+                                        {pagedLogs.map((log: AuditLog) => (
+                                            <tr key={log.id} className="hover:bg-gray-50/60 transition-colors">
+                                                <td className="px-3 py-3 text-xs text-text-muted whitespace-nowrap">
+                                                    <div className="font-medium text-gray-700">{new Date(log.created_at).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                                                    <div className="text-[10px]">{new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                                </td>
+                                                <td className="px-3 py-3 text-xs font-medium text-gray-800">{log.profiles?.full_name || 'Unknown'}</td>
+                                                <td className="px-3 py-3">
+                                                    <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide whitespace-nowrap ${ACTION_COLORS[log.action] || 'bg-gray-100 text-gray-600'}`}>
+                                                        {log.action.replace(/_/g, ' ')}
+                                                    </span>
+                                                </td>
+                                                <td className="px-3 py-3 text-xs text-text-muted">{renderDetails(log.details)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Pagination */}
+                            {totalPages > 1 && (
+                                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                                    <span className="text-xs text-text-muted">
+                                        Page {logPage} of {totalPages} ({filteredLogs.length} total)
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => setLogPage(p => Math.max(1, p - 1))}
+                                            disabled={logPage === 1}
+                                            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => setLogPage(p => Math.min(totalPages, p + 1))}
+                                            disabled={logPage === totalPages}
+                                            className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     ) : (
-                        <div className="mt-4 p-8 border border-dashed border-gray-200 rounded-lg text-center bg-gray-50">
-                            <Activity className="mx-auto text-gray-400 mb-2" size={32} />
-                            <p className="text-text-muted">No logs found.</p>
-                            <p className="text-xs text-gray-400 mt-2">Run the SQL extension script to create the audit_logs table.</p>
+                        <div className="mt-4 p-10 border border-dashed border-gray-200 rounded-xl text-center bg-gray-50">
+                            <Activity className="mx-auto text-gray-300 mb-3" size={36} />
+                            <p className="text-text-muted font-medium">No audit logs found.</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                                {logs.length > 0 ? 'Try adjusting your filters.' : 'Make sure the audit_logs table exists in Supabase.'}
+                            </p>
                         </div>
                     )}
                 </Card>

@@ -23,6 +23,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { assessmentService } from '@/services/assessmentService';
+import { auditService } from '@/services/auditService';
 
 interface AssessmentRecord {
     patient_id: string;
@@ -229,6 +230,7 @@ export function AssessmentHistoryPage() {
         setDeletingId(patientId);
         try {
             await assessmentService.deleteAssessment(patientId);
+            await auditService.log('ASSESSMENT_DELETED', { patient_id: patientId, patient_name: patientName });
             setRecords(prev => prev.filter(r => r.patient_id !== patientId));
         } catch (err) {
             console.error('Delete assessment error:', err);
