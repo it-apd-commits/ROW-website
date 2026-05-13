@@ -148,6 +148,18 @@ export const assessmentService = {
     },
 
     async updateClinical(id: number, data: Partial<ClinicalAssessment>): Promise<ClinicalAssessment> {
+        const patientId = data.patient_id;
+
+        if (!navigator.onLine) {
+            if (!patientId) throw new Error('patient_id is required for offline clinical update');
+            const existing = await db.offline_clinical_assessments.get(patientId);
+            const updated: OfflineClinicalAssessment = existing
+                ? { ...existing, ...data, sync_status: 'pending' }
+                : { patient_id: patientId, ...data, sync_status: 'pending' } as OfflineClinicalAssessment;
+            await db.offline_clinical_assessments.put(updated);
+            return updated as ClinicalAssessment;
+        }
+
         const { data: result, error } = await supabase
             .from('clinical_assessment')
             .update(data)
@@ -155,6 +167,12 @@ export const assessmentService = {
             .select()
             .single();
         if (error) { console.error('Update clinical assessment error:', error); throw error; }
+
+        // Keep local cache consistent so getClinical() reflects the latest data
+        if (patientId) {
+            await db.offline_clinical_assessments.update(patientId, { ...data, sync_status: 'synced' });
+        }
+
         return result as ClinicalAssessment;
     },
 
@@ -192,6 +210,19 @@ export const assessmentService = {
     },
 
     async updateFollowUp(id: number, data: Partial<FollowUpAssessment>): Promise<FollowUpAssessment> {
+        const patientId = data.patient_id;
+        const sessionNumber = data.session_number;
+
+        if (!navigator.onLine) {
+            if (!patientId || sessionNumber === undefined) throw new Error('patient_id and session_number are required for offline follow-up update');
+            const existing = await db.offline_follow_up_assessments.get([patientId, sessionNumber]);
+            const updated: OfflineFollowUpAssessment = existing
+                ? { ...existing, ...data, sync_status: 'pending' }
+                : { patient_id: patientId, session_number: sessionNumber, ...data, sync_status: 'pending' } as OfflineFollowUpAssessment;
+            await db.offline_follow_up_assessments.put(updated);
+            return { ...updated, id: undefined } as FollowUpAssessment;
+        }
+
         const { data: result, error } = await supabase
             .from('follow_up_assessment')
             .update(data)
@@ -199,6 +230,12 @@ export const assessmentService = {
             .select()
             .single();
         if (error) { console.error('Update follow-up error:', error); throw error; }
+
+        // Keep local cache consistent so getFollowUps() reflects the latest data
+        if (patientId && sessionNumber !== undefined) {
+            await db.offline_follow_up_assessments.update([patientId, sessionNumber], { ...data, sync_status: 'synced' });
+        }
+
         return result as FollowUpAssessment;
     },
 
@@ -233,6 +270,8 @@ export const assessmentService = {
 
     // ── Delete entire assessment (all 3 tables) ──
     async deleteAssessment(patientId: string): Promise<void> {
+        if (!navigator.onLine) throw new Error('Cannot delete assessment while offline. Please reconnect and try again.');
+
         // Delete follow-ups first, then clinical, then initial (child -> parent order)
         const { error: fuErr } = await supabase
             .from('follow_up_assessment')

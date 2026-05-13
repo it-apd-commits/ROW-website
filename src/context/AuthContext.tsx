@@ -15,8 +15,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const fetchProfile = async (userId: string, userEmail?: string) => {
         try {
-            console.log('AuthContext: Fetching profile for', userId, userEmail);
-
             const { data, error } = await supabase
                 .from('profiles')
                 .select('*')
@@ -51,7 +49,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     userRole = 'Staff';
                 }
 
-                console.log(`AuthContext: Resolved role as [${userRole}] (DB: ${data.role}, Emergency: ${isEmergencyAdmin})`);
                 setRole(userRole);
             } else if (isEmergencyAdmin) {
                 // Fallback: If DB fetch failed but email is verified admin
@@ -66,7 +63,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     full_name: userEmail?.split('@')[0]
                 } as UserProfile);
             } else {
-                console.log('AuthContext: No profile found, defaulting to Staff');
                 setRole('Staff');
             }
         } catch (error) {

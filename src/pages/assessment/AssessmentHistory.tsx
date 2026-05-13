@@ -451,9 +451,10 @@ export function AssessmentHistoryPage() {
                                                     {canDeleteRecords && (
                                                         <Button
                                                             variant="secondary"
-                                                            className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-red-50 text-red-600 border-none hover:bg-red-100"
+                                                            className="h-8 px-2 flex items-center gap-1.5 text-[11px] bg-red-50 text-red-600 border-none hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed"
                                                             onClick={() => handleDelete(r.patient_id, r.patient_name)}
-                                                            disabled={deletingId === r.patient_id}
+                                                            disabled={deletingId === r.patient_id || !isOnline}
+                                                            title={!isOnline ? 'Cannot delete while offline' : undefined}
                                                         >
                                                             {deletingId === r.patient_id
                                                                 ? <span className="w-3.5 h-3.5 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />

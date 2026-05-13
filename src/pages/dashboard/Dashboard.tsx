@@ -24,12 +24,6 @@ interface MappedCamp {
     type: string;
 }
 
-interface UpcomingAlert {
-    location: string;
-    date: string;
-    daysUntil: number;
-}
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
@@ -43,8 +37,6 @@ export function DashboardPage() {
     });
 
     const [upcomingCamps, setUpcomingCamps] = useState<MappedCamp[]>([]);
-    const [, setUpcomingAlerts] = useState<UpcomingAlert[]>([]);
-    const [, setMissedCampCount] = useState(0);
 
     // Global Filter State
     const [timeframe, setTimeframe] = useState<TimeFrame>('all');
@@ -98,20 +90,14 @@ export function DashboardPage() {
                 if (globalFilter.startDate) sQuery = sQuery.gte('schedule_date', globalFilter.startDate);
                 if (globalFilter.endDate) sQuery = sQuery.lte('schedule_date', globalFilter.endDate);
 
-                const currentDate = new Date();
-                const todayStr = currentDate.toISOString().split('T')[0];
+                const todayStr = new Date().toISOString().split('T')[0];
 
-                const futureDate = new Date();
-                futureDate.setDate(futureDate.getDate() + 7);
-                const futureDateStr = futureDate.toISOString().split('T')[0];
-
-                // Run all 5 queries in parallel
+                // Run 4 queries in parallel
                 const [
                     { count: beneficiaryCount, error: bError },
                     { data: trips, error: tError },
                     { count: servicesCount, error: srvError },
                     { data: schedules, error: sError },
-                    { count: missedCount },
                 ] = await Promise.all([
                     bQuery,
                     tQuery,
@@ -123,14 +109,6 @@ export function DashboardPage() {
                         .gte('scheduled_date', todayStr)
                         .order('scheduled_date', { ascending: true })
                         .limit(10),
-                    supabase
-                        .from('monthly_schedules')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('is_active', true)
-                        .lt('scheduled_date', todayStr)
-                        .is('trip_id', null)
-                        .neq('status', 'completed')
-                        .neq('status', 'cancelled'),
                 ]);
 
                 if (bError) throw bError;
@@ -156,23 +134,7 @@ export function DashboardPage() {
                         type: camp.status === 'completed' ? 'Completed' : 'Screening Camp',
                     }));
                     setUpcomingCamps(mappedCamps);
-
-                    const todayMs = currentDate.getTime();
-                    const alerts: UpcomingAlert[] = schedules
-                        .filter(s => s.scheduled_date <= futureDateStr)
-                        .map(s => {
-                            const campDate = new Date(s.scheduled_date + 'T00:00:00');
-                            const diffDays = Math.ceil((campDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
-                            return {
-                                location: s.location_name,
-                                date: campDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-                                daysUntil: diffDays,
-                            };
-                        });
-                    setUpcomingAlerts(alerts);
                 }
-
-                setMissedCampCount(missedCount || 0);
 
             } catch (err) {
                 console.error('Error fetching dashboard stats:', err);

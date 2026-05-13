@@ -110,7 +110,7 @@ function SidebarContent({ collapsed, mobileOpen, onMobileClose, onToggleCollapse
                                 <button
                                     key={b.id}
                                     onClick={() => {
-                                        navigate(`/beneficiary/profile/${b.id}`);
+                                        navigate(`/beneficiary/${b.id}`);
                                         setIsSearching(false);
                                         setSearchQuery('');
                                         if (mobileOpen) onMobileClose();

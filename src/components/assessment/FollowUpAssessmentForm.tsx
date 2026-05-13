@@ -8,7 +8,7 @@ import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
 import { getVASCategory } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
-import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, X, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff } from 'lucide-react';
+import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, X, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff, CheckCircle2 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { RecommendedExercises } from './RecommendedExercises';
 
@@ -69,6 +69,13 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
     const [showForm, setShowForm] = useState(false);
     const [editingSession, setEditingSession] = useState<FollowUpAssessment | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [lastSaved, setLastSaved] = useState<{ offline: boolean } | null>(null);
+
+    useEffect(() => {
+        if (!lastSaved) return;
+        const t = setTimeout(() => setLastSaved(null), 3500);
+        return () => clearTimeout(t);
+    }, [lastSaved]);
     const [treatmentPlan, setTreatmentPlan] = useState<{
         exercise_therapy: string[];
         electro_therapy: string[];
@@ -296,6 +303,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
             } else {
                 await assessmentService.createFollowUp(payload);
             }
+            setLastSaved({ offline: !isOnline });
             closeForm();
             await loadHistory();
         } catch (err: unknown) {
@@ -320,6 +328,14 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
             )}
             {errors._form && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{errors._form}</div>
+            )}
+
+            {/* Save success notice (auto-dismisses after 3.5s) */}
+            {lastSaved && (
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border ${lastSaved.offline ? 'bg-orange-50 text-orange-800 border-orange-200' : 'bg-green-50 text-green-800 border-green-200'}`}>
+                    {lastSaved.offline ? <WifiOff size={16} className="shrink-0" /> : <CheckCircle2 size={16} className="shrink-0" />}
+                    <span>{lastSaved.offline ? 'Follow-up saved offline — will sync when reconnected.' : 'Follow-up session saved successfully.'}</span>
+                </div>
             )}
 
             {/* Session History */}

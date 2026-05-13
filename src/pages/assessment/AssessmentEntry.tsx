@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { ClipboardList, CheckCircle2 } from 'lucide-react';
+import { ClipboardList, CheckCircle2, Wifi, WifiOff } from 'lucide-react';
 import { InitialAssessmentForm } from '@/components/assessment/InitialAssessmentForm';
 import { ClinicalAssessmentForm } from '@/components/assessment/ClinicalAssessmentForm';
 import { FollowUpAssessmentForm } from '@/components/assessment/FollowUpAssessmentForm';
 import { Loader } from '@/components/common/Loader';
 import { assessmentService } from '@/services/assessmentService';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import type { InitialAssessment, ClinicalAssessment } from '@/types/assessment';
 
 type Step = 1 | 2 | 3;
@@ -18,6 +19,7 @@ const STEPS = [
 
 export function AssessmentEntryPage() {
     const { patientId } = useParams<{ patientId: string }>();
+    const isOnline = useOnlineStatus();
     const [activeStep, setActiveStep] = useState<Step>(1);
     const [initialData, setInitialData] = useState<InitialAssessment | null>(null);
     const [clinicalData, setClinicalData] = useState<ClinicalAssessment | null>(null);
@@ -25,6 +27,13 @@ export function AssessmentEntryPage() {
         assessment_date: new Date().toISOString().split('T')[0],
     }));
     const [isLoadingExisting, setIsLoadingExisting] = useState(false);
+    const [saveNotice, setSaveNotice] = useState<{ message: string; offline: boolean } | null>(null);
+
+    useEffect(() => {
+        if (!saveNotice) return;
+        const t = setTimeout(() => setSaveNotice(null), 3500);
+        return () => clearTimeout(t);
+    }, [saveNotice]);
 
     // Load existing patient when editing via URL param
     useEffect(() => {
@@ -69,16 +78,23 @@ export function AssessmentEntryPage() {
     const handleInitialSaved = (saved: InitialAssessment) => {
         setInitialData(saved);
         setInitialFormData(saved);
-        // If condition changed, reset clinical
         if (clinicalData && clinicalData.condition !== saved.primary_condition) {
             setClinicalData(null);
         }
+        setSaveNotice({
+            message: isOnline ? 'Initial assessment saved successfully.' : 'Initial assessment saved offline — will sync when reconnected.',
+            offline: !isOnline,
+        });
         setActiveStep(2);
     };
 
     // Handle Step 2 saved
     const handleClinicalSaved = (saved: ClinicalAssessment) => {
         setClinicalData(saved);
+        setSaveNotice({
+            message: isOnline ? 'Clinical assessment saved successfully.' : 'Clinical assessment saved offline — will sync when reconnected.',
+            offline: !isOnline,
+        });
         setActiveStep(3);
     };
 
@@ -87,19 +103,40 @@ export function AssessmentEntryPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-primary/10 rounded-xl">
-                    <ClipboardList className="text-primary" size={22} />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-primary/10 rounded-xl">
+                        <ClipboardList className="text-primary" size={22} />
+                    </div>
+                    <div>
+                        <h1 className="text-xl md:text-2xl font-bold text-text-main">Assessment Entry</h1>
+                        <p className="text-sm text-text-muted">
+                            {initialData
+                                ? `Patient: ${initialData.patient_name} (${initialData.patient_id}) — ${initialData.primary_condition}`
+                                : 'Complete the 3-step assessment workflow'}
+                        </p>
+                    </div>
                 </div>
-                <div>
-                    <h1 className="text-xl md:text-2xl font-bold text-text-main">Assessment Entry</h1>
-                    <p className="text-sm text-text-muted">
-                        {initialData
-                            ? `Patient: ${initialData.patient_name} (${initialData.patient_id}) — ${initialData.primary_condition}`
-                            : 'Complete the 3-step assessment workflow'}
-                    </p>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border self-start sm:self-auto ${isOnline ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+                    {isOnline ? <><Wifi size={14} /> Online</> : <><WifiOff size={14} /> Offline</>}
                 </div>
             </div>
+
+            {/* Offline notice */}
+            {!isOnline && (
+                <div className="flex items-start gap-3 px-4 py-3 bg-orange-50 border border-orange-200 rounded-xl text-sm text-orange-800">
+                    <WifiOff size={16} className="shrink-0 mt-0.5" />
+                    <span>You're offline — assessments will be saved locally and synced automatically when you reconnect.</span>
+                </div>
+            )}
+
+            {/* Save success notice (auto-dismisses after 3.5s) */}
+            {saveNotice && (
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border transition-all ${saveNotice.offline ? 'bg-orange-50 text-orange-800 border-orange-200' : 'bg-green-50 text-green-800 border-green-200'}`}>
+                    {saveNotice.offline ? <WifiOff size={16} className="shrink-0" /> : <CheckCircle2 size={16} className="shrink-0" />}
+                    <span>{saveNotice.message}</span>
+                </div>
+            )}
 
             {/* Step Indicator */}
             <div className="flex items-center gap-2 bg-surface p-4 rounded-xl border border-gray-100 shadow-sm">
