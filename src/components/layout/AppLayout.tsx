@@ -31,7 +31,7 @@ export function AppLayout() {
                     </div>
                 </main>
 
-                <footer className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 px-4 md:px-8 py-2 border-t border-gray-100 bg-white text-[11px] text-text-muted">
+                <footer className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-1 px-4 md:px-8 py-3 border-t border-gray-100 bg-white text-xs text-text-muted">
                     <span>
                         &copy; {new Date().getFullYear()} <span className="font-semibold text-primary">Rehab on Wheels</span> &mdash; The Association of People with Disability
                     </span>
