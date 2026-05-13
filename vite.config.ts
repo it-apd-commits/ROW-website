@@ -12,29 +12,29 @@ export default defineConfig({
     // PWA Configuration
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['logo.jpg'],
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg}'],
         maximumFileSizeToCacheInBytes: 5000000
       },
       devOptions: {
         enabled: false
       },
       manifest: {
-        name: 'ROW Outreach',
+        name: 'ROW — Rehab on Wheels | APD',
         short_name: 'ROW',
-        description: 'Offline Registration for ROW Community Outreach',
+        description: 'Rehabilitation outreach management — The Association of People with Disability',
         theme_color: '#008080',
         icons: [
           {
-            src: 'icon.svg',
+            src: 'logo.jpg',
             sizes: '192x192',
-            type: 'image/svg+xml'
+            type: 'image/jpeg'
           },
           {
-            src: 'icon.svg',
+            src: 'logo.jpg',
             sizes: '512x512',
-            type: 'image/svg+xml'
+            type: 'image/jpeg'
           }
         ]
       }
