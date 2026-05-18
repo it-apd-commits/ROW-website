@@ -107,6 +107,82 @@ export const exportBeneficiariesToExcel = async (
     window.URL.revokeObjectURL(url);
 };
 
+export const downloadBeneficiaryImportTemplate = async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Beneficiary_Import');
+
+    worksheet.columns = [
+        { header: 'SYSTEM_ID', key: 'system_id', width: 40 },
+        { header: 'NAME', key: 'name', width: 25 },
+        { header: 'AGE', key: 'age', width: 10 },
+        { header: 'GENDER', key: 'gender', width: 15 },
+        { header: 'DATE OF REGISTRATION', key: 'date_of_registration', width: 25 },
+        { header: 'PARENT/GUARDIAN NAME', key: 'parent_guardian', width: 25 },
+        { header: 'RELATIONSHIP', key: 'relationship', width: 20 },
+        { header: 'TYPE OF BENEFICIARY', key: 'beneficiary_type', width: 25 },
+        { header: 'STATUS', key: 'status', width: 15 },
+        { header: 'ADDRESS', key: 'address', width: 30 },
+        { header: 'ADDRESS TYPE', key: 'address_type', width: 20 },
+        { header: 'COUNTRY', key: 'country', width: 15 },
+        { header: 'STATE', key: 'state', width: 20 },
+        { header: 'DISTRICT', key: 'district', width: 20 },
+        { header: 'CITY', key: 'city', width: 20 },
+        { header: 'PINCODE', key: 'pincode', width: 15 },
+        { header: 'MOBILE NO', key: 'mobile_no', width: 20 },
+        { header: 'PURPOSE OF VISIT', key: 'purpose_of_visit', width: 25 },
+        { header: 'DISABILITY TYPE', key: 'disability_type', width: 25 },
+        { header: 'PROGRAM', key: 'program', width: 20 },
+        { header: 'DONOR', key: 'donor', width: 20 },
+    ];
+
+    // Example row
+    worksheet.addRow({
+        system_id: '',
+        name: 'Example Patient',
+        age: 30,
+        gender: 'Male',
+        date_of_registration: new Date().toISOString().split('T')[0],
+        parent_guardian: 'Guardian Name',
+        relationship: 'Parent',
+        beneficiary_type: 'New',
+        status: 'Active',
+        address: '123 Example Street',
+        address_type: 'Permanent',
+        country: 'India',
+        state: 'Karnataka',
+        district: 'Bengaluru Rural',
+        city: 'Bengaluru',
+        pincode: '560001',
+        mobile_no: '9999999999',
+        purpose_of_visit: 'Consultation',
+        disability_type: 'Physical',
+        program: 'APD',
+        donor: '',
+    });
+
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: 'FF000000' }, size: 12 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+    headerRow.height = 30;
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'Beneficiary_Import_Template.xlsx';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+};
+
 /**
  * Utility to download a sample format for file number import
  */

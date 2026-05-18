@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 type Options = {
@@ -13,12 +13,17 @@ type Options = {
 // burst of row changes only triggers one reload.
 export function useRealtimeSync({ tables, onChange, enabled = true, debounceMs = 400 }: Options) {
     const callbackRef = useRef(onChange);
-    callbackRef.current = onChange;
+    useLayoutEffect(() => {
+        callbackRef.current = onChange;
+    });
+
+    // Stable key so the effect only re-runs when the set of tables changes.
+    const tableKey = Array.isArray(tables) ? tables.join('|') : tables;
 
     useEffect(() => {
         if (!enabled) return;
 
-        const tableList = Array.isArray(tables) ? tables : [tables];
+        const tableList = tableKey.split('|');
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
         const triggerRefetch = () => {
@@ -56,5 +61,5 @@ export function useRealtimeSync({ tables, onChange, enabled = true, debounceMs =
             window.removeEventListener('focus', handleFocus);
             window.removeEventListener('online', handleFocus);
         };
-    }, [Array.isArray(tables) ? tables.join('|') : tables, enabled, debounceMs]);
+    }, [tableKey, enabled, debounceMs]);
 }

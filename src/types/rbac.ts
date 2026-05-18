@@ -13,6 +13,7 @@ export interface PermissionRules {
     canExportData: boolean;
     canApproveRequests: boolean;
     canImportFileNumbers: boolean;
+    canImportBeneficiaries: boolean;
 
     // Page-level access — keys match the tags used by SidebarMenu and RouteGuard
     // dashboard, beneficiary, services, assessments, tokens, tracking,
@@ -31,6 +32,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canExportData: true,
         canApproveRequests: true,
         canImportFileNumbers: true,
+        canImportBeneficiaries: true,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments',
             'tokens', 'tracking', 'reports', 'exercises', 'settings', 'admin'
@@ -46,6 +48,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canExportData: true,
         canApproveRequests: true,
         canImportFileNumbers: true,
+        canImportBeneficiaries: true,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments',
             'tokens', 'tracking', 'reports', 'exercises', 'settings'
@@ -61,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canExportData: false,
         canApproveRequests: false,
         canImportFileNumbers: false,
+        canImportBeneficiaries: false,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments', 'tokens', 'settings'
         ]
@@ -75,6 +79,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canExportData: true,
         canApproveRequests: false,
         canImportFileNumbers: true,
+        canImportBeneficiaries: true,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments', 'reports', 'settings'
         ]
@@ -89,6 +94,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canExportData: true,
         canApproveRequests: false,
         canImportFileNumbers: false,
+        canImportBeneficiaries: false,
         accessiblePages: ['dashboard', 'tracking', 'settings']
     }
 };

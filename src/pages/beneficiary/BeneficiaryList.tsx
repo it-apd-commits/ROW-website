@@ -10,6 +10,7 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { ImportFileNumbersModal } from '@/components/beneficiary/ImportFileNumbersModal';
+import { ImportBeneficiariesModal } from '@/components/beneficiary/ImportBeneficiariesModal';
 import { auditService } from '@/services/auditService';
 import { FileUp } from 'lucide-react';
 import type { OfflineBeneficiary } from '@/lib/db';
@@ -30,7 +31,8 @@ export function BeneficiaryListPage() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-    const { canDeleteRecords, canImportFileNumbers, canCreateRecords, canExportData } = usePermissions();
+    const [isImportBeneficiariesModalOpen, setIsImportBeneficiariesModalOpen] = useState(false);
+    const { canDeleteRecords, canImportFileNumbers, canImportBeneficiaries, canCreateRecords, canExportData } = usePermissions();
 
     const fetchBeneficiaries = useCallback(async () => {
         setIsLoading(true);
@@ -217,6 +219,15 @@ export function BeneficiaryListPage() {
                             <Download size={18} /> Export Excel ({filteredBeneficiaries.length})
                         </Button>
                     )}
+                    {canImportBeneficiaries && (
+                        <Button
+                            variant="secondary"
+                            onClick={() => setIsImportBeneficiariesModalOpen(true)}
+                            className="flex items-center gap-2 bg-green-50 text-green-700 border-green-100 hover:bg-green-100"
+                        >
+                            <FileUp size={18} /> Import Beneficiaries
+                        </Button>
+                    )}
                     {canImportFileNumbers && (
                         <Button
                             variant="secondary"
@@ -239,6 +250,11 @@ export function BeneficiaryListPage() {
             <ImportFileNumbersModal
                 isOpen={isImportModalOpen}
                 onClose={() => setIsImportModalOpen(false)}
+                onSuccess={fetchBeneficiaries}
+            />
+            <ImportBeneficiariesModal
+                isOpen={isImportBeneficiariesModalOpen}
+                onClose={() => setIsImportBeneficiariesModalOpen(false)}
                 onSuccess={fetchBeneficiaries}
             />
 

@@ -8,18 +8,18 @@ import { supabase } from '@/lib/supabase';
 // to appear, then forward to the dashboard.
 export function AuthCallbackPage() {
     const navigate = useNavigate();
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-    useEffect(() => {
-        let cancelled = false;
-
+    // Initialise from URL synchronously so we never call setState inside an effect.
+    const [errorMessage, setErrorMessage] = useState<string | null>(() => {
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
         const queryParams = new URLSearchParams(window.location.search);
         const errorDescription = hashParams.get('error_description') || queryParams.get('error_description');
-        if (errorDescription) {
-            setErrorMessage(decodeURIComponent(errorDescription.replace(/\+/g, ' ')));
-            return;
-        }
+        return errorDescription ? decodeURIComponent(errorDescription.replace(/\+/g, ' ')) : null;
+    });
+
+    useEffect(() => {
+        if (errorMessage) return;
+
+        let cancelled = false;
 
         const goToDashboard = () => {
             if (cancelled) return;
@@ -49,7 +49,7 @@ export function AuthCallbackPage() {
             subscription.unsubscribe();
             clearTimeout(fallback);
         };
-    }, [navigate]);
+    }, [navigate, errorMessage]);
 
     return (
         <div className="min-h-screen bg-background flex items-center justify-center p-6">
