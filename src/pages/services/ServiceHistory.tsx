@@ -26,6 +26,7 @@ import {
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { auditService } from '@/services/auditService';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
 interface ExtendedServiceRecord extends ServiceEntry {
@@ -275,6 +276,7 @@ export function ServiceHistoryPage() {
         anchor.download = `Service_History_Audit${rangeLabel}_${new Date().toISOString().split('T')[0]}.xlsx`;
         anchor.click();
         window.URL.revokeObjectURL(url);
+        auditService.log('SERVICE_HISTORY_EXPORTED', { count: filteredServices.length, from_date: fromDate || null, to_date: toDate || null });
     };
 
     const handleDelete = async (service: ExtendedServiceRecord) => {
@@ -290,6 +292,7 @@ export function ServiceHistoryPage() {
                 .eq('id', service.id);
 
             if (error) throw error;
+            await auditService.log('SERVICE_ENTRY_DELETED', { entry_id: service.id, service_code: service.service_code, file_number: service.file_number, schedule_date: service.schedule_date });
             setServices(prev => prev.filter(s => s.id !== service.id));
         } catch (err) {
             console.error('Delete service error:', err);

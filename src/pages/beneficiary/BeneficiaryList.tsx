@@ -159,6 +159,7 @@ export function BeneficiaryListPage() {
             filteredBeneficiaries,
             (startDate || endDate) ? { startDate, endDate } : undefined
         );
+        auditService.log('BENEFICIARY_DATA_EXPORTED', { count: filteredBeneficiaries.length, from_date: startDate || null, to_date: endDate || null });
     };
 
     const filteredBeneficiaries = beneficiaries.filter(b => {

@@ -4,6 +4,7 @@ import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import { importBeneficiaries, type BeneficiaryImportSummary } from '@/services/importService';
 import { downloadBeneficiaryImportTemplate } from '@/utils/beneficiaryExport';
+import { auditService } from '@/services/auditService';
 
 interface ImportBeneficiariesModalProps {
     isOpen: boolean;
@@ -34,7 +35,10 @@ export function ImportBeneficiariesModal({ isOpen, onClose, onSuccess }: ImportB
         try {
             const result = await importBeneficiaries(file);
             setSummary(result);
-            if (result.imported > 0) onSuccess();
+            if (result.imported > 0) {
+                onSuccess();
+                auditService.log('BENEFICIARY_BULK_IMPORTED', { imported: result.imported, skipped: result.skipped, failed: result.failed, file_name: file.name });
+            }
         } catch (err) {
             setError((err as Error).message || 'Import failed. Please check the file format.');
         } finally {

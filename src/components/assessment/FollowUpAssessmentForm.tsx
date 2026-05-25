@@ -8,6 +8,7 @@ import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
 import { getVASCategory } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
+import { auditService } from '@/services/auditService';
 import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, X, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff, CheckCircle2 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { RecommendedExercises } from './RecommendedExercises';
@@ -300,8 +301,10 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
             const payload = buildPayload();
             if (isEditMode) {
                 await assessmentService.updateFollowUp(editingSession!.id!, payload);
+                auditService.log('ASSESSMENT_FOLLOWUP_UPDATED', { patient_id: patientId, patient_name: initialData?.patient_name, session_number: editingSession!.session_number });
             } else {
                 await assessmentService.createFollowUp(payload);
+                auditService.log('ASSESSMENT_FOLLOWUP_SAVED', { patient_id: patientId, patient_name: initialData?.patient_name, session_number: nextSession, offline: !isOnline });
             }
             setLastSaved({ offline: !isOnline });
             closeForm();

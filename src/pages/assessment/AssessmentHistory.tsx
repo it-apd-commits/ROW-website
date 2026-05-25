@@ -223,6 +223,7 @@ export function AssessmentHistoryPage() {
         anchor.download = `Assessment_History_${new Date().toISOString().split('T')[0]}.xlsx`;
         anchor.click();
         window.URL.revokeObjectURL(url);
+        auditService.log('ASSESSMENT_DATA_EXPORTED', { count: filtered.length, from_date: fromDate || null, to_date: toDate || null });
     };
 
     const handleDelete = async (patientId: string, patientName: string) => {
