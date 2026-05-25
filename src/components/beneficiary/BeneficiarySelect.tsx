@@ -91,43 +91,39 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
               ).catch(() => ({ data: [] as Beneficiary[], error: null }))
             : Promise.resolve({ data: [] as Beneficiary[], error: null });
 
-        // Dexie search: when online only scan pending/failed (Supabase covers synced);
-        // when offline, load all records via toArray() then filter in JS — this matches
-        // the same pattern BeneficiaryList uses and avoids Collection.filter() edge cases
-        // in Dexie 4 when no index constraint is applied.
-        const dexieSearch = isCurrentlyOnline
-            ? db.beneficiaries
-                .where('sync_status').anyOf(['pending', 'failed'])
-                .filter(b =>
+        // Always scan all Dexie records regardless of online status.
+        // The previous approach only scanned pending/failed when online, which meant
+        // server-pulled records (sync_status: 'synced') were invisible whenever
+        // navigator.onLine was true — even with no actual internet (e.g. WiFi at camp).
+        const dexieSearch = db.beneficiaries
+            .toArray()
+            .then(all =>
+                all.filter(b =>
                     b.name.toLowerCase().includes(lower) ||
-                    b.offline_token.toLowerCase().includes(lower) ||
+                    (b.offline_token ?? '').toLowerCase().includes(lower) ||
                     (b.file_number != null && b.file_number.toLowerCase().includes(lower))
                 )
-                .limit(10)
-                .toArray()
-                .catch(() => [])
-            : db.beneficiaries
-                .toArray()
-                .then(all =>
-                    all
-                        .filter(b =>
-                            b.name.toLowerCase().includes(lower) ||
-                            b.offline_token.toLowerCase().includes(lower) ||
-                            (b.file_number != null && b.file_number.toLowerCase().includes(lower))
-                        )
-                        .slice(0, 10)
-                )
-                .catch(() => []);
+            )
+            .catch(() => []);
 
         const [supabaseResult, dexieRecords] = await Promise.all([supabaseSearch, dexieSearch]);
 
         const onlineResults: Beneficiary[] = (supabaseResult.data ?? []) as Beneficiary[];
-        const offlineResults: Beneficiary[] = dexieRecords.map(b => ({
-            id: b.offline_token,
-            name: b.name,
-            file_number: b.file_number ?? b.offline_token,
-            _isOffline: b.sync_status !== 'synced',
-        }));
+
+        // Exclude Dexie records whose server UUID already appears in Supabase results
+        // so the same beneficiary never shows twice in the dropdown.
+        const supabaseIds = new Set(onlineResults.map(r => r.id));
+        const offlineResults: Beneficiary[] = dexieRecords
+            .filter(b => !supabaseIds.has(b.id ?? ''))
+            .slice(0, 10)
+            .map(b => ({
+                // Synced records carry the real server UUID in b.id — use it so service
+                // entries link to the correct server record after sync.
+                id: b.sync_status === 'synced' ? (b.id ?? b.offline_token) : b.offline_token,
+                name: b.name,
+                file_number: b.file_number ?? b.offline_token,
+                _isOffline: b.sync_status !== 'synced',
+            }));
 
         setResults([...onlineResults, ...offlineResults]);
         setIsLoading(false);

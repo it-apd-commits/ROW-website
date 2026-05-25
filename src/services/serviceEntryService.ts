@@ -47,7 +47,9 @@ export const ServiceEntryService = {
         // If the service entry references an offline-registered beneficiary (file_number is an
         // offline token), skip the immediate sync — SyncService will sync the beneficiary first,
         // propagate the real file_number to this record, and then sync the entry in order.
-        const isOfflineBeneficiary = localRecord.file_number?.startsWith('OFF-') ?? false;
+        // Covers both manually-created offline tokens (OFF-) and Excel-imported tokens (import-).
+        const fn = localRecord.file_number ?? '';
+        const isOfflineBeneficiary = fn.startsWith('OFF-') || fn.startsWith('import-');
 
         if (navigator.onLine && !isOfflineBeneficiary) {
             const dataToSync = Object.fromEntries(

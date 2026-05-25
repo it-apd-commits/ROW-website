@@ -73,9 +73,10 @@ export function ServiceHistoryPage() {
 
                         if (fileNumbers.length > 0) {
                             const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                            const isOfflineToken = (fn: string) => fn.startsWith('OFF-') || fn.startsWith('import-');
                             const uuidRefs = fileNumbers.filter(fn => uuidPattern.test(fn));
-                            const offTokenRefs = fileNumbers.filter(fn => fn.startsWith('OFF-'));
-                            const realFileNums = fileNumbers.filter(fn => !uuidPattern.test(fn) && !fn.startsWith('OFF-'));
+                            const offTokenRefs = fileNumbers.filter(fn => isOfflineToken(fn));
+                            const realFileNums = fileNumbers.filter(fn => !uuidPattern.test(fn) && !isOfflineToken(fn));
 
                             if (realFileNums.length > 0) {
                                 const { data: byFileNum } = await supabase
@@ -146,7 +147,9 @@ export function ServiceHistoryPage() {
 
             // Look up real beneficiary names from Dexie for offline-token entries
             const offlineTokens = [...new Set(
-                localPending.filter(r => r.file_number?.startsWith('OFF-')).map(r => r.file_number!)
+                localPending
+                    .filter(r => r.file_number?.startsWith('OFF-') || r.file_number?.startsWith('import-'))
+                    .map(r => r.file_number!)
             )];
             const dexieNameMap = new Map<string, string>();
             if (offlineTokens.length > 0) {

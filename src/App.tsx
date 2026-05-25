@@ -16,7 +16,8 @@ function App() {
           const { SyncService } = await import('./lib/syncService');
           SyncService.syncPendingRecords().catch(console.error);
         }
-      } catch {
+      } catch (err) {
+        console.error('[App] Dexie count failed, falling back to full sync:', err);
         const { SyncService } = await import('./lib/syncService');
         SyncService.syncPendingRecords().catch(console.error);
       }

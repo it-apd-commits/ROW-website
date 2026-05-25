@@ -101,7 +101,7 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
                             : 'Follow Up 4';
                     setFormData(prev => ({ ...prev, custom_field2: nextFollowUp }));
                 })
-                .catch(() => { });
+                .catch((err) => console.error('[CoreServiceDetails] History fetch failed:', err));
         }, [formData.file_number]);
 
         const validate = useCallback((): boolean => {

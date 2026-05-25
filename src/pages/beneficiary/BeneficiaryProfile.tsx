@@ -50,8 +50,10 @@ export function BeneficiaryProfilePage() {
             if (bError) throw bError;
             setBeneficiary(bData);
 
-            // Fetch service history from service_entries using file_number or beneficiary name
-            const searchValues = [bData.file_number, bData.name].filter(Boolean);
+            // Fetch service history using all known identifiers for this beneficiary:
+            // file_number (when assigned), UUID id (offline entries resolved by sync),
+            // offline_token (legacy import-xxx entries already on server), name (fallback).
+            const searchValues = [bData.file_number, bData.id, bData.offline_token, bData.name].filter(Boolean);
             if (searchValues.length > 0) {
                 const { data: sData, error: sError } = await supabase
                     .from('service_entries')

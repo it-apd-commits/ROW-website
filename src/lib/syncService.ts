@@ -187,6 +187,84 @@ export const SyncService = {
         }
     },
 
+    async pullBeneficiariesFromServer(
+        onProgress?: (downloaded: number, total: number) => void
+    ): Promise<{ downloaded: number; total: number }> {
+        if (!navigator.onLine) throw new Error('No internet connection');
+
+        // Retrieve last pull timestamp for incremental sync
+        const meta = await db.metadata.get('last_beneficiary_pull');
+        const lastPull = meta?.value as string | undefined;
+
+        // Count how many records are available to download
+        let countQuery = supabase
+            .from('beneficiaries')
+            .select('*', { count: 'exact', head: true });
+        if (lastPull) {
+            countQuery = countQuery.gt('created_at', lastPull);
+        }
+        const { count, error: countError } = await countQuery;
+        if (countError) throw countError;
+
+        const total = count ?? 0;
+
+        if (total === 0) {
+            await db.metadata.put({ key: 'last_beneficiary_pull', value: new Date().toISOString() });
+            console.log('[SyncService] No new beneficiaries to pull from server');
+            return { downloaded: 0, total: 0 };
+        }
+
+        console.log(`[SyncService] Pulling ${total} beneficiaries from server...`);
+
+        const BATCH_SIZE = 500;
+        let downloaded = 0;
+
+        for (let offset = 0; offset < total; offset += BATCH_SIZE) {
+            let query = supabase
+                .from('beneficiaries')
+                .select('*')
+                .order('created_at', { ascending: true })
+                .range(offset, offset + BATCH_SIZE - 1);
+            if (lastPull) {
+                query = query.gt('created_at', lastPull);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            // Skip records whose offline_token already exists in Dexie — those were
+            // created on this device and are already stored locally (avoids duplicates).
+            const batchTokens = (data ?? [])
+                .map((r: Record<string, unknown>) => r.offline_token as string)
+                .filter(Boolean);
+            const existingTokens = batchTokens.length > 0
+                ? new Set(
+                    (await db.beneficiaries
+                        .where('offline_token')
+                        .anyOf(batchTokens)
+                        .toArray()
+                    ).map(r => r.offline_token)
+                )
+                : new Set<string>();
+
+            const recordsToPut = (data ?? [])
+                .filter((r: Record<string, unknown>) => !r.offline_token || !existingTokens.has(r.offline_token as string))
+                .map((r: Record<string, unknown>) => ({
+                    ...r,
+                    sync_status: 'synced' as const,
+                }));
+
+            await db.beneficiaries.bulkPut(recordsToPut as Parameters<typeof db.beneficiaries.bulkPut>[0]);
+            downloaded += recordsToPut.length;
+            onProgress?.(downloaded, total);
+            console.log(`[SyncService] Pulled batch: ${downloaded}/${total}`);
+        }
+
+        await db.metadata.put({ key: 'last_beneficiary_pull', value: new Date().toISOString() });
+        console.log(`[SyncService] Pull complete — ${downloaded} beneficiaries stored locally`);
+        return { downloaded, total };
+    },
+
     async syncPendingServiceEntries() {
         const recordsToSync = await db.service_entries
             .where('sync_status')
@@ -202,6 +280,30 @@ export const SyncService = {
                 const dataToSync = Object.fromEntries(
                     Object.entries(record).filter(([key]) => !['id', 'sync_status', 'error_message'].includes(key))
                 );
+
+                // Resolve offline-token file_numbers (OFF- or import-) to the beneficiary's
+                // real file_number or UUID before pushing to Supabase.
+                const storedFn = record.file_number ?? '';
+                if (storedFn.startsWith('OFF-') || storedFn.startsWith('import-')) {
+                    const { data: bData } = await supabase
+                        .from('beneficiaries')
+                        .select('id, file_number')
+                        .eq('offline_token', storedFn)
+                        .maybeSingle();
+
+                    if (!bData) {
+                        // Beneficiary hasn't reached the server yet — defer this entry
+                        // so it syncs after the beneficiary does on the next cycle.
+                        console.log(`[SyncService] Deferring service entry ${record.offline_id} — beneficiary not on server yet`);
+                        continue;
+                    }
+
+                    const resolvedFn = bData.file_number ?? bData.id;
+                    dataToSync.file_number = resolvedFn;
+                    // Persist the resolved value to Dexie so future cycles use it directly.
+                    await db.service_entries.update(record.id!, { file_number: resolvedFn });
+                    console.log(`[SyncService] Resolved file_number ${storedFn} → ${resolvedFn} for entry ${record.offline_id}`);
+                }
 
                 const { error } = await supabase
                     .from('service_entries')

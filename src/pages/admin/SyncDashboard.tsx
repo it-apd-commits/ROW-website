@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { db } from '@/lib/db';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
-import { Cloud, CloudOff, RefreshCw, AlertTriangle, CheckCircle2, Wifi, WifiOff, Stethoscope, Users, ClipboardList } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, AlertTriangle, CheckCircle2, Wifi, WifiOff, Stethoscope, Users, ClipboardList, Download } from 'lucide-react';
 import { SyncService } from '@/lib/syncService';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
@@ -19,6 +19,11 @@ export function SyncDashboardPage() {
     const [assessmentCounts, setAssessmentCounts] = useState<SyncCounts>({ pending: 0, synced: 0, failed: 0 });
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastSync, setLastSync] = useState<string | null>(localStorage.getItem('last_sync_time'));
+    const [isPulling, setIsPulling] = useState(false);
+    const [pullProgress, setPullProgress] = useState<{ downloaded: number; total: number } | null>(null);
+    const [pullResult, setPullResult] = useState<{ downloaded: number; total: number } | null>(null);
+    const [pullError, setPullError] = useState<string | null>(null);
+    const [lastPull, setLastPull] = useState<string | null>(null);
 
     const loadCounts = useCallback(async () => {
         const [bPending, bSynced, bFailed, sPending, sSynced, sFailed,
@@ -61,6 +66,12 @@ export function SyncDashboardPage() {
         };
     }, [loadCounts]);
 
+    useEffect(() => {
+        db.metadata.get('last_beneficiary_pull').then(meta => {
+            if (meta?.value) setLastPull(meta.value as string);
+        });
+    }, []);
+
     const totalPending = beneficiaryCounts.pending + serviceCounts.pending + assessmentCounts.pending;
     const totalFailed = beneficiaryCounts.failed + serviceCounts.failed + assessmentCounts.failed;
 
@@ -76,6 +87,27 @@ export function SyncDashboardPage() {
         localStorage.setItem('last_sync_time', now);
         await loadCounts();
         setIsSyncing(false);
+    };
+
+    const handlePrepareOffline = async () => {
+        if (!isOnline || isPulling) return;
+        setIsPulling(true);
+        setPullProgress(null);
+        setPullResult(null);
+        setPullError(null);
+        try {
+            const result = await SyncService.pullBeneficiariesFromServer((downloaded, total) => {
+                setPullProgress({ downloaded, total });
+            });
+            setPullResult(result);
+            const meta = await db.metadata.get('last_beneficiary_pull');
+            if (meta?.value) setLastPull(meta.value as string);
+            await loadCounts();
+        } catch (err) {
+            setPullError(err instanceof Error ? err.message : 'Failed to download beneficiaries. Please try again.');
+        } finally {
+            setIsPulling(false);
+        }
     };
 
     return (
@@ -250,6 +282,76 @@ export function SyncDashboardPage() {
                         {lastSync && (
                             <p className="mt-3 text-[10px] text-text-muted uppercase tracking-widest font-bold">
                                 Last Sync Attempt: {lastSync}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </Card>
+
+            {/* Prepare for Offline Camp */}
+            <Card className="p-8 text-center bg-blue-50/50 border-dashed border-2 border-blue-200">
+                <div className="max-w-md mx-auto space-y-4">
+                    <div className="flex justify-center mb-2">
+                        {isPulling ? (
+                            <RefreshCw className="text-primary animate-spin" size={48} />
+                        ) : pullResult !== null ? (
+                            <CheckCircle2 className="text-green-500" size={48} />
+                        ) : (
+                            <Download className="text-blue-400" size={48} />
+                        )}
+                    </div>
+                    <h2 className="text-xl font-bold text-text-main">Prepare for Offline Camp</h2>
+                    <p className="text-text-muted text-sm">
+                        Download all beneficiaries from the server to this device. Staff can then search and serve beneficiaries without internet during field camps.
+                    </p>
+
+                    {isPulling && pullProgress && (
+                        <div className="bg-white border border-blue-100 rounded-xl p-3 text-left">
+                            <p className="text-sm font-bold text-primary mb-2">
+                                Downloading... {pullProgress.downloaded.toLocaleString()} / {pullProgress.total.toLocaleString()} beneficiaries
+                            </p>
+                            <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-primary rounded-full transition-all duration-300"
+                                    style={{ width: `${Math.round((pullProgress.downloaded / pullProgress.total) * 100)}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {pullResult !== null && !isPulling && (
+                        <div className="bg-green-50 border border-green-100 rounded-xl p-3">
+                            <p className="text-sm font-bold text-green-700">
+                                {pullResult.downloaded === 0
+                                    ? 'Already up to date — no new beneficiaries to download.'
+                                    : `${pullResult.downloaded.toLocaleString()} beneficiaries downloaded successfully. Device is ready for offline camp.`}
+                            </p>
+                        </div>
+                    )}
+
+                    {pullError && (
+                        <div className="bg-red-50 border border-red-100 rounded-xl p-3">
+                            <p className="text-sm font-bold text-red-700">{pullError}</p>
+                        </div>
+                    )}
+
+                    <div className="pt-4">
+                        <Button
+                            onClick={handlePrepareOffline}
+                            disabled={isPulling || !isOnline}
+                            className="bg-primary hover:bg-primary-dark text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 mx-auto disabled:opacity-50"
+                        >
+                            <Download size={20} />
+                            {isPulling ? 'Downloading...' : 'Prepare for Offline Camp'}
+                        </Button>
+                        {!isOnline && (
+                            <p className="mt-3 text-[10px] text-red-500 uppercase tracking-widest font-bold">
+                                Internet connection required to prepare
+                            </p>
+                        )}
+                        {lastPull && !isPulling && (
+                            <p className="mt-3 text-[10px] text-text-muted uppercase tracking-widest font-bold">
+                                Last Prepared: {new Date(lastPull).toLocaleString()}
                             </p>
                         )}
                     </div>

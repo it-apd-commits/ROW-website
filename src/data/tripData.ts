@@ -203,7 +203,7 @@ export const sampleTrips: Trip[] = [
  */
 export function loadSampleData(): void {
     localStorage.setItem('trips', JSON.stringify(sampleTrips));
-    console.log('✅ Sample trip data loaded!');
+    console.log('[tripData] Sample trip data loaded.');
 }
 
 /**
@@ -211,7 +211,7 @@ export function loadSampleData(): void {
  */
 export function clearTripData(): void {
     localStorage.removeItem('trips');
-    console.log('🗑️ Trip data cleared!');
+    console.log('[tripData] Trip data cleared.');
 }
 
 /**

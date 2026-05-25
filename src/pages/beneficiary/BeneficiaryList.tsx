@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
-import { Plus, User, MapPin, Phone, Search, Download, Trash2, CheckSquare, Square, Wifi, WifiOff, CloudOff, CloudCheck, AlertTriangle } from 'lucide-react';
+import { Plus, User, MapPin, Phone, Search, Download, Trash2, CheckSquare, Square, Wifi, WifiOff, CloudOff, CloudCheck, AlertTriangle, FileUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { exportBeneficiariesToExcel } from '@/utils/beneficiaryExport';
 import { db } from '@/lib/db';
@@ -12,7 +12,6 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { ImportFileNumbersModal } from '@/components/beneficiary/ImportFileNumbersModal';
 import { ImportBeneficiariesModal } from '@/components/beneficiary/ImportBeneficiariesModal';
 import { auditService } from '@/services/auditService';
-import { FileUp } from 'lucide-react';
 import type { OfflineBeneficiary } from '@/lib/db';
 
 interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, unknown> {
