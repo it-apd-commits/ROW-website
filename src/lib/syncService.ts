@@ -254,7 +254,7 @@ export const SyncService = {
                     sync_status: 'synced' as const,
                 }));
 
-            await db.beneficiaries.bulkPut(recordsToPut as Parameters<typeof db.beneficiaries.bulkPut>[0]);
+            await db.beneficiaries.bulkPut(recordsToPut as unknown as Parameters<typeof db.beneficiaries.bulkPut>[0]);
             downloaded += recordsToPut.length;
             onProgress?.(downloaded, total);
             console.log(`[SyncService] Pulled batch: ${downloaded}/${total}`);
