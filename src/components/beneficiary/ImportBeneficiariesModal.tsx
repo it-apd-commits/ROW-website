@@ -37,7 +37,7 @@ export function ImportBeneficiariesModal({ isOpen, onClose, onSuccess }: ImportB
             setSummary(result);
             if (result.imported > 0) {
                 onSuccess();
-                auditService.log('BENEFICIARY_BULK_IMPORTED', { imported: result.imported, skipped: result.skipped, failed: result.failed, file_name: file.name });
+                auditService.log('BENEFICIARY_BULK_IMPORTED', { imported: result.imported, skipped: result.skipped, errors: result.errors, file_name: file.name });
             }
         } catch (err) {
             setError((err as Error).message || 'Import failed. Please check the file format.');
