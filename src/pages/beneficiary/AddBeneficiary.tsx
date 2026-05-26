@@ -343,6 +343,7 @@ export function AddBeneficiaryPage() {
                                     { value: 'Delay Development', label: 'Delay Development' },
                                     { value: 'Down Syndrome', label: 'Down Syndrome' },
                                     { value: 'Dwarfism', label: 'Dwarfism' },
+                                    { value: 'General Screening', label: 'General Screening' },
                                     { value: 'Global Developmental Delay', label: 'Global Developmental Delay' },
                                     { value: 'Hearing Impairment', label: 'Hearing Impairment' },
                                     { value: 'Intellectual Disability', label: 'Intellectual Disability' },

@@ -10,6 +10,7 @@ import { BeneficiarySelect } from '@/components/beneficiary/BeneficiarySelect';
 import { SERVICE_MASTER, LOCATION_MASTER, MODE_OF_SERVICE } from '@/data/masters';
 import { supabase } from '@/lib/supabase';
 import { ServiceEntryService } from '@/services/serviceEntryService';
+import { SyncService } from '@/lib/syncService';
 import type { ServiceEntry, ServiceEntryPayload } from '@/types/serviceEntry';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -33,8 +34,8 @@ export function ServiceEntryPage() {
     const [preselectedBeneficiaryId, setPreselectedBeneficiaryId] = useState<string | null>(beneficiaryIdFromUrl);
 
     // Multi-service selection (create mode only). Each row becomes an individual service_entries record.
-    const [selectedServices, setSelectedServices] = useState<{ code: string; hours: string }[]>([
-        { code: '', hours: '' }
+    const [selectedServices, setSelectedServices] = useState<{ code: string; minutes: string }[]>([
+        { code: '', minutes: '' }
     ]);
     const isEdit = !!id;
 
@@ -150,16 +151,16 @@ export function ServiceEntryPage() {
 
         if (isEdit) {
             if (!formData.service_code) { setError('Service Code is mandatory'); return false; }
-            if ((formData.total_hours || 0) <= 0) { setError('Total Hours must be greater than 0'); return false; }
+            if ((formData.total_hours || 0) <= 0) { setError('Total Minutes must be greater than 0'); return false; }
         } else {
-            const rows = selectedServices.filter(s => s.code || s.hours);
+            const rows = selectedServices.filter(s => s.code || s.minutes);
             if (rows.length === 0) { setError('Add at least one service'); return false; }
             const codes = new Set<string>();
             for (let i = 0; i < rows.length; i++) {
                 const r = rows[i];
                 if (!r.code) { setError(`Service #${i + 1}: select a service code`); return false; }
-                const h = parseFloat(r.hours);
-                if (!h || h <= 0) { setError(`Service #${i + 1}: total hours must be greater than 0`); return false; }
+                const h = parseFloat(r.minutes);
+                if (!h || h <= 0) { setError(`Service #${i + 1}: total minutes must be greater than 0`); return false; }
                 if (codes.has(r.code)) { setError(`Service "${r.code}" is selected more than once`); return false; }
                 codes.add(r.code);
             }
@@ -207,12 +208,17 @@ export function ServiceEntryPage() {
                         ServiceEntryService.createEntry({
                             ...(formData as ServiceEntryPayload),
                             service_code: r.code,
-                            total_hours: parseFloat(r.hours),
+                            total_hours: parseFloat(r.minutes) / 60,
                         })
                     )
                 );
                 setSavedCount(rows.length);
                 await auditService.log('SERVICE_ENTRY_CREATED', { count: rows.length, file_number: formData.file_number, offline: !isOnline });
+                // Fire a background sync so any previously-failed records are also
+                // pushed immediately — without this, they would only retry on page refresh.
+                if (isOnline) {
+                    SyncService.syncPendingRecords().catch(console.error);
+                }
             }
             setShowSuccessModal(true);
         } catch (err: unknown) {
@@ -406,17 +412,17 @@ export function ServiceEntryPage() {
                                     />
                                     <div className="space-y-1.5 text-sm font-medium text-text-main">
                                         <label className="flex items-center gap-2 mb-1">
-                                            <Clock size={16} className="text-primary" /> Total Hours Spent
+                                            <Clock size={16} className="text-primary" /> Total Minutes Spent
                                         </label>
                                         <Input
                                             name="total_hours"
                                             type="number"
-                                            step="0.1"
-                                            min="0.1"
-                                            value={formData.total_hours || ''}
-                                            onChange={(e) => handleChange('total_hours', parseFloat(e.target.value))}
+                                            step="1"
+                                            min="1"
+                                            value={formData.total_hours ? Math.round(formData.total_hours * 60) : ''}
+                                            onChange={(e) => handleChange('total_hours', parseFloat(e.target.value) / 60)}
                                             required
-                                            placeholder="e.g. 1.5"
+                                            placeholder="e.g. 30"
                                         />
                                     </div>
                                 </div>
@@ -431,7 +437,7 @@ export function ServiceEntryPage() {
                                             type="button"
                                             variant="secondary"
                                             className="h-8 px-3 text-xs flex items-center gap-1.5 bg-white"
-                                            onClick={() => setSelectedServices(prev => [...prev, { code: '', hours: '' }])}
+                                            onClick={() => setSelectedServices(prev => [...prev, { code: '', minutes: '' }])}
                                         >
                                             <Plus size={14} /> Add Service
                                         </Button>
@@ -461,29 +467,29 @@ export function ServiceEntryPage() {
                                                 />
                                                 <div className="space-y-1.5 text-sm font-medium text-text-main">
                                                     <label className="flex items-center gap-1.5 mb-1 text-xs">
-                                                        <Clock size={14} className="text-primary" /> Hours
+                                                        <Clock size={14} className="text-primary" /> Minutes
                                                     </label>
                                                     <Input
                                                         name={`total_hours_${idx}`}
                                                         type="number"
-                                                        step="0.1"
-                                                        min="0.1"
-                                                        value={row.hours}
+                                                        step="1"
+                                                        min="1"
+                                                        value={row.minutes}
                                                         onChange={(e) => {
                                                             const v = e.target.value;
-                                                            setSelectedServices(prev => prev.map((s, i) => i === idx ? { ...s, hours: v } : s));
+                                                            setSelectedServices(prev => prev.map((s, i) => i === idx ? { ...s, minutes: v } : s));
                                                         }}
                                                         required
-                                                        placeholder="e.g. 1.5"
+                                                        placeholder="e.g. 15"
                                                     />
                                                 </div>
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        setSelectedServices(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ code: '', hours: '' }]);
+                                                        setSelectedServices(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ code: '', minutes: '' }]);
                                                     }}
                                                     className="h-10 w-10 flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-40"
-                                                    disabled={selectedServices.length === 1 && !row.code && !row.hours}
+                                                    disabled={selectedServices.length === 1 && !row.code && !row.minutes}
                                                     aria-label="Remove service"
                                                 >
                                                     <X size={16} />
@@ -690,7 +696,7 @@ export function ServiceEntryPage() {
                                 <button
                                     onClick={() => {
                                         setShowSuccessModal(false);
-                                        setSelectedServices([{ code: '', hours: '' }]);
+                                        setSelectedServices([{ code: '', minutes: '' }]);
                                         setFormData(prev => ({
                                             ...prev,
                                             file_number: null,

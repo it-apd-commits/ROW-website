@@ -24,6 +24,9 @@ export function SyncDashboardPage() {
     const [pullResult, setPullResult] = useState<{ downloaded: number; total: number } | null>(null);
     const [pullError, setPullError] = useState<string | null>(null);
     const [lastPull, setLastPull] = useState<string | null>(null);
+    const today = new Date().toISOString().slice(0, 10);
+    const [filterFrom, setFilterFrom] = useState(today);
+    const [filterTo, setFilterTo] = useState(today);
 
     const loadCounts = useCallback(async () => {
         const [bPending, bSynced, bFailed, sPending, sSynced, sFailed,
@@ -96,9 +99,16 @@ export function SyncDashboardPage() {
         setPullResult(null);
         setPullError(null);
         try {
-            const result = await SyncService.pullBeneficiariesFromServer((downloaded, total) => {
-                setPullProgress({ downloaded, total });
-            });
+            // Build date range from the date pickers.
+            // Use the day after filterTo so the full end date is included.
+            const fromDate = filterFrom;
+            const nextDay = new Date(filterTo);
+            nextDay.setDate(nextDay.getDate() + 1);
+            const toDate = nextDay.toISOString().slice(0, 10);
+            const result = await SyncService.pullBeneficiariesFromServer(
+                (downloaded, total) => { setPullProgress({ downloaded, total }); },
+                { from: fromDate, to: toDate }
+            );
             setPullResult(result);
             const meta = await db.metadata.get('last_beneficiary_pull');
             if (meta?.value) setLastPull(meta.value as string);
@@ -302,8 +312,35 @@ export function SyncDashboardPage() {
                     </div>
                     <h2 className="text-xl font-bold text-text-main">Prepare for Offline Camp</h2>
                     <p className="text-text-muted text-sm">
-                        Download all beneficiaries from the server to this device. Staff can then search and serve beneficiaries without internet during field camps.
+                        Download beneficiaries registered in the selected date range to this device. Staff can then search and serve them without internet during field camps.
                     </p>
+
+                    {/* Registration date range filter */}
+                    <div className="bg-white border border-blue-100 rounded-xl p-4 text-left space-y-2">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Filter by Registration Date</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-600">From</label>
+                                <input
+                                    type="date"
+                                    value={filterFrom}
+                                    max={filterTo}
+                                    onChange={e => setFilterFrom(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-medium text-gray-600">To</label>
+                                <input
+                                    type="date"
+                                    value={filterTo}
+                                    min={filterFrom}
+                                    onChange={e => setFilterTo(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                />
+                            </div>
+                        </div>
+                    </div>
 
                     {isPulling && pullProgress && (
                         <div className="bg-white border border-blue-100 rounded-xl p-3 text-left">

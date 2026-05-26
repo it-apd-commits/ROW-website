@@ -159,10 +159,7 @@ export function ServiceHistoryPage() {
                 dexieBeneficiaries.forEach(b => dexieNameMap.set(b.offline_token, b.name));
             }
 
-            const syncedOfflineIds = new Set(serverEntries.map(s => (s as ExtendedServiceRecord & { offline_id?: string }).offline_id).filter(Boolean));
-
             const offlineEntries: ExtendedServiceRecord[] = localPending
-                .filter(r => !syncedOfflineIds.has(r.offline_id))
                 .map(r => ({
                     id: `offline-${r.id}`,
                     status: r.status,

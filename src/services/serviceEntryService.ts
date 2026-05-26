@@ -52,8 +52,10 @@ export const ServiceEntryService = {
         const isOfflineBeneficiary = fn.startsWith('OFF-') || fn.startsWith('import-');
 
         if (navigator.onLine && !isOfflineBeneficiary) {
+            // offline_id is a Dexie-only deduplication key — exclude it from the Supabase payload
+            // since the service_entries table does not have that column.
             const dataToSync = Object.fromEntries(
-                Object.entries(localRecord).filter(([key]) => !['sync_status', 'error_message'].includes(key))
+                Object.entries(localRecord).filter(([key]) => !['offline_id', 'sync_status', 'error_message'].includes(key))
             );
 
             const { error } = await supabase

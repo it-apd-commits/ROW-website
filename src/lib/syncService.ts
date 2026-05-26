@@ -188,19 +188,22 @@ export const SyncService = {
     },
 
     async pullBeneficiariesFromServer(
-        onProgress?: (downloaded: number, total: number) => void
+        onProgress?: (downloaded: number, total: number) => void,
+        dateRange?: { from: string; to: string }
     ): Promise<{ downloaded: number; total: number }> {
         if (!navigator.onLine) throw new Error('No internet connection');
 
-        // Retrieve last pull timestamp for incremental sync
+        // When a date range is supplied, filter by registration date range.
+        // Otherwise fall back to incremental pull (only records newer than last pull).
         const meta = await db.metadata.get('last_beneficiary_pull');
         const lastPull = meta?.value as string | undefined;
 
-        // Count how many records are available to download
         let countQuery = supabase
             .from('beneficiaries')
             .select('*', { count: 'exact', head: true });
-        if (lastPull) {
+        if (dateRange) {
+            countQuery = countQuery.gte('created_at', dateRange.from).lt('created_at', dateRange.to);
+        } else if (lastPull) {
             countQuery = countQuery.gt('created_at', lastPull);
         }
         const { count, error: countError } = await countQuery;
@@ -209,7 +212,9 @@ export const SyncService = {
         const total = count ?? 0;
 
         if (total === 0) {
-            await db.metadata.put({ key: 'last_beneficiary_pull', value: new Date().toISOString() });
+            if (!dateRange) {
+                await db.metadata.put({ key: 'last_beneficiary_pull', value: new Date().toISOString() });
+            }
             console.log('[SyncService] No new beneficiaries to pull from server');
             return { downloaded: 0, total: 0 };
         }
@@ -225,7 +230,9 @@ export const SyncService = {
                 .select('*')
                 .order('created_at', { ascending: true })
                 .range(offset, offset + BATCH_SIZE - 1);
-            if (lastPull) {
+            if (dateRange) {
+                query = query.gte('created_at', dateRange.from).lt('created_at', dateRange.to);
+            } else if (lastPull) {
                 query = query.gt('created_at', lastPull);
             }
 
@@ -260,7 +267,10 @@ export const SyncService = {
             console.log(`[SyncService] Pulled batch: ${downloaded}/${total}`);
         }
 
-        await db.metadata.put({ key: 'last_beneficiary_pull', value: new Date().toISOString() });
+        // Only update the incremental pull timestamp when not using a date range filter
+        if (!dateRange) {
+            await db.metadata.put({ key: 'last_beneficiary_pull', value: new Date().toISOString() });
+        }
         console.log(`[SyncService] Pull complete — ${downloaded} beneficiaries stored locally`);
         return { downloaded, total };
     },
@@ -277,8 +287,9 @@ export const SyncService = {
 
         for (const record of recordsToSync) {
             try {
+                // offline_id is Dexie-only — the service_entries table in Supabase does not have this column.
                 const dataToSync = Object.fromEntries(
-                    Object.entries(record).filter(([key]) => !['id', 'sync_status', 'error_message'].includes(key))
+                    Object.entries(record).filter(([key]) => !['id', 'offline_id', 'sync_status', 'error_message'].includes(key))
                 );
 
                 // Resolve offline-token file_numbers (OFF- or import-) to the beneficiary's
