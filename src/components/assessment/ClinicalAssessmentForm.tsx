@@ -13,6 +13,7 @@ import { RecommendedExercises } from './RecommendedExercises';
 import { CoreServiceDetails } from './CoreServiceDetails';
 import type { CoreServiceDetailsRef } from './CoreServiceDetails';
 import { ServiceEntryService } from '@/services/serviceEntryService';
+import { SyncService } from '@/lib/syncService';
 import type { ServiceEntryPayload } from '@/types/serviceEntry';
 
 const EI_DOMAINS = [
@@ -126,12 +127,12 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
     const isOnline = useOnlineStatus();
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSaving, setIsSaving] = useState(false);
-    const [serviceData, setServiceData] = useState<ServiceEntryPayload | null>(null);
+    const [serviceData, setServiceData] = useState<ServiceEntryPayload[] | null>(null);
     const [serviceDataValid, setServiceDataValid] = useState(false);
     const serviceRef = useRef<CoreServiceDetailsRef>(null);
 
-    const handleServiceDataChange = (data: ServiceEntryPayload | null, isValid: boolean) => {
-        setServiceData(data);
+    const handleServiceDataChange = (payloads: ServiceEntryPayload[] | null, isValid: boolean) => {
+        setServiceData(payloads);
         setServiceDataValid(isValid);
     };
 
@@ -299,14 +300,21 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
                 ? await assessmentService.updateClinical(existingClinical!.id!, payload)
                 : await assessmentService.createClinical(payload);
 
-            // Save service entry if data is filled and valid
-            if (serviceData && serviceDataValid) {
+            // Save service entries if data is filled and valid
+            if (serviceData && serviceData.length > 0 && serviceDataValid) {
                 try {
-                    await ServiceEntryService.createEntry({
-                        ...serviceData,
-                        remarks: 'Created via Assessment Entry',
-                    });
+                    await Promise.all(
+                        serviceData.map(payload =>
+                            ServiceEntryService.createEntry({
+                                ...payload,
+                                remarks: 'Created via Assessment Entry',
+                            })
+                        )
+                    );
                     serviceRef.current?.setSaveStatus('saved');
+                    if (isOnline) {
+                        SyncService.syncPendingRecords().catch(console.error);
+                    }
                 } catch (serviceErr) {
                     console.error('Service entry creation failed:', serviceErr);
                     serviceRef.current?.setSaveStatus('error');

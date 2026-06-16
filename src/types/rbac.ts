@@ -14,6 +14,7 @@ export interface PermissionRules {
     canApproveRequests: boolean;
     canImportFileNumbers: boolean;
     canImportBeneficiaries: boolean;
+    canImportServices: boolean;
 
     // Page-level access — keys match the tags used by SidebarMenu and RouteGuard
     // dashboard, beneficiary, services, assessments, tokens, tracking,
@@ -33,6 +34,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canApproveRequests: true,
         canImportFileNumbers: true,
         canImportBeneficiaries: true,
+        canImportServices: true,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments',
             'tokens', 'tracking', 'reports', 'exercises', 'settings', 'admin'
@@ -49,6 +51,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canApproveRequests: true,
         canImportFileNumbers: true,
         canImportBeneficiaries: true,
+        canImportServices: true,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments',
             'tokens', 'tracking', 'reports', 'exercises', 'settings'
@@ -65,6 +68,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canApproveRequests: false,
         canImportFileNumbers: false,
         canImportBeneficiaries: false,
+        canImportServices: false,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments', 'tokens', 'settings'
         ]
@@ -80,6 +84,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canApproveRequests: false,
         canImportFileNumbers: true,
         canImportBeneficiaries: true,
+        canImportServices: true,
         accessiblePages: [
             'dashboard', 'beneficiary', 'services', 'assessments', 'reports', 'settings'
         ]
@@ -95,6 +100,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionRules> = {
         canApproveRequests: false,
         canImportFileNumbers: false,
         canImportBeneficiaries: false,
+        canImportServices: false,
         accessiblePages: ['dashboard', 'tracking', 'settings']
     }
 };

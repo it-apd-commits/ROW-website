@@ -5,7 +5,7 @@ import { Select } from '@/components/common/Select';
 import { Input } from '@/components/common/Input';
 import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
-import { Save, Wifi, WifiOff, CheckCircle } from 'lucide-react';
+import { Save, Wifi, WifiOff, CheckCircle, ClipboardList } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/db';
@@ -400,9 +400,17 @@ export function AddBeneficiaryPage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex gap-4 pt-4 border-t border-gray-100 justify-end">
+                    <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100 justify-end">
                         <Button type="button" variant="secondary" className="w-full sm:w-32" onClick={() => navigate('/beneficiary/list')}>
                             Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full sm:w-auto flex items-center justify-center gap-2"
+                            onClick={() => navigate('/assessments/new')}
+                        >
+                            <ClipboardList size={18} /> Add Assessment
                         </Button>
                         <Button
                             type="submit"

@@ -12,6 +12,7 @@ import {
     Search,
     RefreshCw,
     Download,
+    Upload,
     Users,
     ShieldCheck,
     History as HistoryIcon,
@@ -23,6 +24,7 @@ import {
     CloudOff,
     CloudCheck,
 } from 'lucide-react';
+import { ImportServicesModal } from '@/components/service/ImportServicesModal';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -35,6 +37,7 @@ interface ExtendedServiceRecord extends ServiceEntry {
     };
     isOffline?: boolean;
     sync_status?: 'pending' | 'synced' | 'failed';
+    error_message?: string;
 }
 
 export function ServiceHistoryPage() {
@@ -45,9 +48,10 @@ export function ServiceHistoryPage() {
     const [toDate, setToDate] = useState('');
 
     const navigate = useNavigate();
-    const { canEditRecords, canDeleteRecords, canExportData } = usePermissions();
+    const { canEditRecords, canDeleteRecords, canExportData, canImportServices } = usePermissions();
     const showActions = canEditRecords || canDeleteRecords;
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const isOnline = useOnlineStatus();
 
     const fetchHistory = useCallback(async () => {
@@ -187,7 +191,8 @@ export function ServiceHistoryPage() {
                     updated_at: r.created_at,
                     beneficiary: { name: dexieNameMap.get(r.file_number ?? '') || r.file_number || 'Unknown' },
                     isOffline: true,
-                    sync_status: r.sync_status
+                    sync_status: r.sync_status,
+                    error_message: r.error_message,
                 }));
 
             setServices([...offlineEntries, ...serverEntries]);
@@ -315,6 +320,15 @@ export function ServiceHistoryPage() {
                     <Button variant="secondary" onClick={fetchHistory} className="bg-white">
                         <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                     </Button>
+                    {canImportServices && (
+                        <Button
+                            variant="secondary"
+                            onClick={() => setIsImportModalOpen(true)}
+                            className="flex items-center gap-2 bg-white"
+                        >
+                            <Upload size={18} /> <span className="hidden sm:inline">Bulk Import</span>
+                        </Button>
+                    )}
                     {canExportData && (
                         <Button onClick={handleExport} className="flex items-center gap-2 shadow-lg shadow-primary/20">
                             <Download size={18} /> <span className="hidden sm:inline">Export Audit Excel</span>
@@ -491,10 +505,20 @@ export function ServiceHistoryPage() {
                                         <td className="py-5">
                                             <div className="flex flex-col gap-1">
                                                 {service.isOffline ? (
-                                                    <span className={`inline-flex items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${service.sync_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                        <CloudOff size={10} />
-                                                        {service.sync_status === 'failed' ? 'Sync Failed' : 'Pending Sync'}
-                                                    </span>
+                                                    <div className="flex flex-col gap-1">
+                                                        <span
+                                                            title={service.sync_status === 'failed' && service.error_message ? service.error_message : undefined}
+                                                            className={`inline-flex items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider cursor-default ${service.sync_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}
+                                                        >
+                                                            <CloudOff size={10} />
+                                                            {service.sync_status === 'failed' ? 'Sync Failed' : 'Pending Sync'}
+                                                        </span>
+                                                        {service.sync_status === 'failed' && service.error_message && (
+                                                            <span className="text-[9px] text-red-500 leading-tight max-w-[160px] break-words">
+                                                                {service.error_message}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-green-50 text-green-700 border border-green-100">
                                                         <CloudCheck size={10} /> Synced
@@ -544,6 +568,12 @@ export function ServiceHistoryPage() {
                     </div>
                 )}
             </Card>
+
+            <ImportServicesModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onSuccess={fetchHistory}
+            />
         </div>
     );
 }

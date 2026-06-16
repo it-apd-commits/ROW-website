@@ -15,7 +15,7 @@ export const DROPDOWNS = {
 
     Joint: ['Shoulder', 'Elbow', 'Wrist', 'Hip', 'Knee', 'Ankle', 'Spine', 'Multiple'],
 
-    Documents: ['BPL', 'APL', 'AADHAR', 'UDID'],
+    Documents: ['BPL', 'APL', 'AADHAR', 'UDID', 'Not Applicable'],
 
     ROM: ['Full', 'Mild Restriction', 'Moderate Restriction', 'Severe Restriction'],
 

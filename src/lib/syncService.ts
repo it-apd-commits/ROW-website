@@ -157,7 +157,7 @@ export const SyncService = {
             for (const fu of followUps) {
                 try {
                     const dataToSync = Object.fromEntries(
-                        Object.entries(fu).filter(([key]) => !['sync_status', 'error_message'].includes(key))
+                        Object.entries(fu).filter(([key]) => !['id', 'sync_status', 'error_message'].includes(key))
                     );
                     const { error } = await supabase
                         .from('follow_up_assessment')
