@@ -15,7 +15,12 @@ import { Link } from 'react-router-dom';
 import { BeneficiaryRegistrationChart } from '@/components/dashboard/BeneficiaryRegistrationChart';
 import { ServiceDashboardChart } from '@/components/dashboard/ServiceDashboardChart';
 import { AssessmentVsReassessmentChart } from '@/components/dashboard/AssessmentVsReassessmentChart';
+import { DonorBreakdownTable } from '@/components/dashboard/DonorBreakdownTable';
+import type { DonorBreakdownRow } from '@/components/dashboard/DonorBreakdownTable';
 import type { TimeFrame, ChartFilter } from '@/types/dashboard';
+
+const UNSPECIFIED_DONOR = 'Unspecified';
+const normalizeDonor = (d: string | null | undefined): string => (d && d.trim() ? d.trim() : UNSPECIFIED_DONOR);
 
 
 interface MappedCamp {
@@ -37,6 +42,10 @@ export function DashboardPage() {
     });
 
     const [upcomingCamps, setUpcomingCamps] = useState<MappedCamp[]>([]);
+
+    // Donor breakdown + filter state
+    const [donorBreakdown, setDonorBreakdown] = useState<DonorBreakdownRow[]>([]);
+    const [donorFilter, setDonorFilter] = useState<string>('all');
 
     // Global Filter State
     const [timeframe, setTimeframe] = useState<TimeFrame>('all');
@@ -90,14 +99,32 @@ export function DashboardPage() {
                 if (globalFilter.startDate) sQuery = sQuery.gte('schedule_date', globalFilter.startDate);
                 if (globalFilter.endDate) sQuery = sQuery.lte('schedule_date', globalFilter.endDate);
 
+                // Donor rows — fetch ALL beneficiaries (no date filter) so the
+                // service→donor map is complete even when a date range is applied;
+                // beneficiary counts are date-filtered in JS below.
+                const bRowsQuery = supabase
+                    .from('beneficiaries')
+                    .select('id, file_number, donor, date_of_registration')
+                    .range(0, 9999);
+
+                // Services for donor attribution — date-filtered on schedule_date.
+                let sRowsQuery = supabase
+                    .from('service_entries')
+                    .select('file_number')
+                    .range(0, 9999);
+                if (globalFilter.startDate) sRowsQuery = sRowsQuery.gte('schedule_date', globalFilter.startDate);
+                if (globalFilter.endDate) sRowsQuery = sRowsQuery.lte('schedule_date', globalFilter.endDate);
+
                 const todayStr = new Date().toISOString().split('T')[0];
 
-                // Run 4 queries in parallel
+                // Run queries in parallel
                 const [
                     { count: beneficiaryCount, error: bError },
                     { data: trips, error: tError },
                     { count: servicesCount, error: srvError },
                     { data: schedules, error: sError },
+                    { data: benRows, error: bRowsError },
+                    { data: srvRows, error: sRowsError },
                 ] = await Promise.all([
                     bQuery,
                     tQuery,
@@ -109,12 +136,57 @@ export function DashboardPage() {
                         .gte('scheduled_date', todayStr)
                         .order('scheduled_date', { ascending: true })
                         .limit(10),
+                    bRowsQuery,
+                    sRowsQuery,
                 ]);
 
                 if (bError) throw bError;
                 if (tError) throw tError;
                 if (srvError) throw srvError;
                 if (sError) throw sError;
+                if (bRowsError) throw bRowsError;
+                if (sRowsError) throw sRowsError;
+
+                // ---- Donor breakdown computation ----
+                const benList = (benRows || []) as { id: string; file_number: string | null; donor: string | null; date_of_registration: string | null }[];
+                const srvList = (srvRows || []) as { file_number: string | null }[];
+
+                // Map every beneficiary key (file_number AND id) to its donor, so a
+                // service_entry.file_number that holds either value still resolves.
+                const donorByKey = new Map<string, string>();
+                benList.forEach(b => {
+                    const d = normalizeDonor(b.donor);
+                    if (b.file_number) donorByKey.set(b.file_number, d);
+                    if (b.id) donorByKey.set(b.id, d);
+                });
+
+                const inRange = (date: string | null): boolean => {
+                    if (!date) return false;
+                    if (globalFilter.startDate && date < globalFilter.startDate) return false;
+                    if (globalFilter.endDate && date > globalFilter.endDate) return false;
+                    return true;
+                };
+
+                const benByDonor: Record<string, number> = {};
+                benList.forEach(b => {
+                    if (!inRange(b.date_of_registration)) return;
+                    const d = normalizeDonor(b.donor);
+                    benByDonor[d] = (benByDonor[d] || 0) + 1;
+                });
+
+                const srvByDonor: Record<string, number> = {};
+                srvList.forEach(s => {
+                    const d = (s.file_number && donorByKey.get(s.file_number)) || 'Unknown';
+                    srvByDonor[d] = (srvByDonor[d] || 0) + 1;
+                });
+
+                const allDonorKeys = Array.from(new Set([...Object.keys(benByDonor), ...Object.keys(srvByDonor)]));
+                const breakdown: DonorBreakdownRow[] = allDonorKeys
+                    .map(d => ({ donor: d, beneficiaries: benByDonor[d] || 0, services: srvByDonor[d] || 0 }))
+                    .filter(r => r.beneficiaries > 0 || r.services > 0)
+                    .sort((a, b) => b.beneficiaries - a.beneficiaries || b.services - a.services);
+
+                setDonorBreakdown(breakdown);
 
                 const uniqueBuses = trips ? new Set(trips.map(t => t.bus_number)).size : 0;
                 const campsConducted = trips ? trips.length : 0;
@@ -146,10 +218,24 @@ export function DashboardPage() {
         fetchDashboardData();
     }, [globalFilter]);
 
+    // If the selected donor no longer appears (e.g. after a date-range change), reset to All.
+    useEffect(() => {
+        if (donorFilter !== 'all' && !donorBreakdown.some(r => r.donor === donorFilter)) {
+            setDonorFilter('all');
+        }
+    }, [donorBreakdown, donorFilter]);
+
+    // Donor dropdown options (real donors only) + the donor-scoped card values.
+    const donorOptions = donorBreakdown.map(r => r.donor).filter(d => d !== 'Unknown');
+    const selectedDonorRow = donorFilter !== 'all' ? donorBreakdown.find(r => r.donor === donorFilter) : null;
+    const isDonorScoped = donorFilter !== 'all';
+    const displayedBeneficiaries = isDonorScoped ? (selectedDonorRow?.beneficiaries ?? 0) : dynamicStats.totalBeneficiaries;
+    const displayedServices = isDonorScoped ? (selectedDonorRow?.services ?? 0) : dynamicStats.servicesProvided;
+
     const stats = [
         {
-            label: 'Total Beneficiaries',
-            value: dynamicStats.totalBeneficiaries.toLocaleString(),
+            label: isDonorScoped ? `Beneficiaries · ${donorFilter}` : 'Total Beneficiaries',
+            value: displayedBeneficiaries.toLocaleString(),
             icon: Users,
             change: '+0%',
             color: 'text-blue-600',
@@ -175,8 +261,8 @@ export function DashboardPage() {
             link: '/tracking/history'
         },
         {
-            label: 'Services Provided',
-            value: dynamicStats.servicesProvided.toLocaleString(),
+            label: isDonorScoped ? `Services · ${donorFilter}` : 'Services Provided',
+            value: displayedServices.toLocaleString(),
             icon: Stethoscope,
             change: 'Lifetime',
             color: 'text-orange-600',
@@ -192,10 +278,25 @@ export function DashboardPage() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
                         <Filter size={18} className="text-gray-400" />
-                        <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Date Filters</span>
+                        <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Filters</span>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-4">
+                        {/* Donor Filter */}
+                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                            <span className="text-[11px] font-bold text-gray-400 uppercase">Donor</span>
+                            <select
+                                value={donorFilter}
+                                onChange={(e) => setDonorFilter(e.target.value)}
+                                className="bg-transparent border-none p-0 text-xs font-semibold focus:ring-0 cursor-pointer"
+                            >
+                                <option value="all">All Donors</option>
+                                {donorOptions.map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                ))}
+                            </select>
+                        </div>
+
                         {/* Timeframe Presets */}
                         <div className="flex bg-gray-100 p-1 rounded-lg">
                             {(['daily', 'monthly', 'yearly', 'all'] as const).map((t) => (
@@ -288,8 +389,10 @@ export function DashboardPage() {
                     <AssessmentVsReassessmentChart filter={globalFilter} />
                 </div>
 
-                {/* Side Panel: Scheduled Camps */}
+                {/* Side Panel: Donor Breakdown + Scheduled Camps */}
                 <div className="space-y-4 md:space-y-6">
+                    <DonorBreakdownTable rows={donorBreakdown} isLoading={isLoading} selectedDonor={donorFilter} />
+
                     <Card>
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-semibold text-lg text-text-main">Upcoming Camps</h3>

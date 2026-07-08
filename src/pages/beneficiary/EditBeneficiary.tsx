@@ -8,6 +8,7 @@ import { Card } from '@/components/common/Card';
 import { Save, ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { auditService } from '@/services/auditService';
+import { DISABILITY_TYPE_OPTIONS } from '@/constants/beneficiaryDropdowns';
 
 export function EditBeneficiaryPage() {
     const { id } = useParams();
@@ -294,30 +295,7 @@ export function EditBeneficiaryPage() {
                                 name="disabilityType"
                                 value={formData.disabilityType}
                                 onChange={handleChange}
-                                options={[
-                                    { value: 'Neuro Muscular Painful Condition', label: 'Neuro Muscular Painful Condition' },
-                                    { value: 'Chronic Neurological Disorder', label: 'Chronic Neurological Disorder' },
-                                    { value: 'Delay Development', label: 'Delay Development' },
-                                    { value: 'Down Syndrome', label: 'Down Syndrome' },
-                                    { value: 'Dwarfism', label: 'Dwarfism' },
-                                    { value: 'General Screening', label: 'General Screening' },
-                                    { value: 'Global Developmental Delay', label: 'Global Developmental Delay' },
-                                    { value: 'Hearing Impairment', label: 'Hearing Impairment' },
-                                    { value: 'Intellectual Disability', label: 'Intellectual Disability' },
-                                    { value: 'Learning Disability', label: 'Learning Disability' },
-                                    { value: 'Locomotor Disability', label: 'Locomotor Disability' },
-                                    { value: 'Low Vision', label: 'Low Vision' },
-                                    { value: 'Multiple Disability', label: 'Multiple Disability' },
-                                    { value: 'Muscular Dystrophy', label: 'Muscular Dystrophy' },
-                                    { value: 'Non Disable', label: 'Non Disable' },
-                                    { value: "Parkinson's Disease", label: "Parkinson's Disease" },
-                                    { value: 'Speech & Hearing Impaired', label: 'Speech & Hearing Impaired' },
-                                    { value: 'Speech Impairment', label: 'Speech Impairment' },
-                                    { value: 'Spinal Bifida', label: 'Spinal Bifida' },
-                                    { value: 'Spinal Cord Injury', label: 'Spinal Cord Injury' },
-                                    { value: 'Thalassemia', label: 'Thalassemia' },
-                                    { value: 'Visual Impaired', label: 'Visual Impaired' },
-                                ]}
+                                options={DISABILITY_TYPE_OPTIONS}
                             />
                             <Select
                                 label="Program"

@@ -7,8 +7,6 @@ import {
     Check,
     Search,
     Filter,
-    ChevronDown,
-    ChevronUp,
     ImageIcon,
     Save,
     Loader2,
@@ -16,6 +14,18 @@ import {
     Printer,
 } from 'lucide-react';
 import { EXERCISE_CATEGORIES } from '@/constants/exerciseConstants';
+
+// Remembers whether the exercise sheet is enabled, so it stays off across visits
+// and the user can scroll straight to Core Service Details below.
+const ENABLED_STORAGE_KEY = 'row.recommendedExercises.enabled';
+
+const readEnabledPref = (): boolean => {
+    try {
+        return localStorage.getItem(ENABLED_STORAGE_KEY) !== 'false';
+    } catch {
+        return true;
+    }
+};
 
 // Map assessment condition names to exercise condition names
 const CONDITION_MAP: Record<string, string> = {
@@ -41,8 +51,16 @@ export function RecommendedExercises({ patientId, patientName, condition }: Prop
     const [saving, setSaving] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterCategory, setFilterCategory] = useState('');
-    const [expanded, setExpanded] = useState(true);
+    const [enabled, setEnabled] = useState<boolean>(readEnabledPref);
     const printRef = useRef<HTMLDivElement>(null);
+
+    const toggleEnabled = () => {
+        setEnabled(prev => {
+            const next = !prev;
+            try { localStorage.setItem(ENABLED_STORAGE_KEY, String(next)); } catch { /* ignore */ }
+            return next;
+        });
+    };
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -266,25 +284,39 @@ export function RecommendedExercises({ patientId, patientName, condition }: Prop
 
     return (
         <Card>
-            {/* Section Header */}
-            <button
-                type="button"
-                onClick={() => setExpanded(!expanded)}
-                className="w-full flex items-center justify-between pb-3 border-b border-gray-100 mb-4"
-            >
+            {/* Section Header with enable/disable toggle */}
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
                 <div className="flex items-center gap-2">
                     <Dumbbell size={18} className="text-emerald-600" />
                     <h3 className="font-semibold text-text-main">Recommended Exercises</h3>
-                    {selectedCount > 0 && (
+                    {enabled && selectedCount > 0 && (
                         <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
                             {selectedCount} selected
                         </span>
                     )}
                 </div>
-                {expanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
-            </button>
+                <div className="flex items-center gap-2.5">
+                    <span className={`text-xs font-semibold ${enabled ? 'text-emerald-600' : 'text-gray-400'}`}>
+                        {enabled ? 'On' : 'Off'}
+                    </span>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={enabled}
+                        aria-label="Toggle recommended exercises"
+                        onClick={toggleEnabled}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-300 ${enabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                    >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                </div>
+            </div>
 
-            {expanded && (
+            {!enabled && (
+                <p className="text-sm text-text-muted">Exercise sheet is off — turn it on to recommend exercises.</p>
+            )}
+
+            {enabled && (
                 <>
                     {loading ? (
                         <div className="text-center py-8 text-text-muted">

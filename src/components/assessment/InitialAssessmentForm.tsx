@@ -124,7 +124,7 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
         if (!data.patient_name || data.patient_name.trim().length < 2) e.patient_name = 'Name must be at least 2 characters';
         if (!data.age || data.age < 1 || data.age > 120) e.age = 'Age must be between 1 and 120';
         if (!data.gender) e.gender = 'Gender is required';
-        if (!data.phone || !/^\d{10}$/.test(data.phone)) e.phone = 'Enter a valid 10-digit phone number';
+        if (data.phone && !/^\d{10}$/.test(data.phone)) e.phone = 'Enter a valid 10-digit phone number';
         if (!data.village?.trim()) e.village = 'Village is required';
         if (!data.primary_condition) e.primary_condition = 'Primary condition is required';
         if (!isEI) {
@@ -147,7 +147,7 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                 patient_name: data.patient_name!,
                 age: Number(data.age),
                 gender: data.gender!,
-                phone: data.phone!,
+                phone: data.phone || '',
                 village: data.village!,
                 primary_condition: data.primary_condition!,
                 chief_complaint: isEI ? 'N/A' : data.chief_complaint!,
@@ -273,8 +273,7 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                         value={data.phone || ''}
                         onChange={e => set('phone', e.target.value)}
                         error={errors.phone}
-                        placeholder="10-digit number"
-                        required
+                        placeholder="10-digit number (optional)"
                     />
                     <Input
                         label="Village"

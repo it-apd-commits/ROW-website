@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Select } from '@/components/common/Select';
@@ -10,18 +10,25 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/db';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { usePermissions } from '@/hooks/usePermissions';
 import { auditService } from '@/services/auditService';
+import { DISABILITY_TYPE_OPTIONS } from '@/constants/beneficiaryDropdowns';
 
 
 export function AddBeneficiaryPage() {
     const navigate = useNavigate();
     const { user } = useAuth();
     const isOnline = useOnlineStatus();
+    const { hasPageAccess, canCreateRecords } = usePermissions();
+    const canAddAssessment = hasPageAccess('assessments') && canCreateRecords;
     const [searchParams] = useSearchParams();
     const completeId = searchParams.get('completeId');
     const isCompletingStub = !!completeId;
     const [isLoading, setIsLoading] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+    // Set when the "Save & Continue to Assessment" button is the submitter,
+    // so handleSubmit navigates to the assessment form instead of the modal.
+    const continueToAssessmentRef = useRef(false);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -88,8 +95,28 @@ export function AddBeneficiaryPage() {
         })();
     }, [completeId]);
 
+    // Demographics carried into the Initial Assessment form via router state.
+    // Works offline: the data is already in memory, so no beneficiary id / refetch is needed.
+    const goToAssessment = () => {
+        navigate('/assessments/new', {
+            state: {
+                prefillBeneficiary: {
+                    name: formData.name,
+                    age: formData.age,
+                    gender: formData.gender,
+                    mobileNo: formData.mobileNo,
+                    city: formData.city,
+                    address: formData.address,
+                },
+            },
+        });
+    };
+
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
+        // Capture and reset immediately so a failed save never leaves the flag stuck.
+        const continueToAssessment = continueToAssessmentRef.current;
+        continueToAssessmentRef.current = false;
         setIsLoading(true);
 
         const commonFields = {
@@ -125,6 +152,7 @@ export function AddBeneficiaryPage() {
 
                 if (error) throw error;
                 await auditService.log('BENEFICIARY_REGISTRATION_COMPLETED', { beneficiary_id: completeId, name: formData.name });
+                if (continueToAssessment) { goToAssessment(); return; }
                 setShowSuccessModal(true);
                 return;
             }
@@ -160,6 +188,7 @@ export function AddBeneficiaryPage() {
             }
 
             await auditService.log('BENEFICIARY_CREATED', { name: formData.name, offline: !isOnline });
+            if (continueToAssessment) { goToAssessment(); return; }
             setShowSuccessModal(true);
         } catch (error) {
             console.error('Error saving beneficiary:', error);
@@ -337,30 +366,7 @@ export function AddBeneficiaryPage() {
                                 name="disabilityType"
                                 value={formData.disabilityType}
                                 onChange={handleChange}
-                                options={[
-                                    { value: 'Neuro Muscular Painful Condition', label: 'Neuro Muscular Painful Condition' },
-                                    { value: 'Chronic Neurological Disorder', label: 'Chronic Neurological Disorder' },
-                                    { value: 'Delay Development', label: 'Delay Development' },
-                                    { value: 'Down Syndrome', label: 'Down Syndrome' },
-                                    { value: 'Dwarfism', label: 'Dwarfism' },
-                                    { value: 'General Screening', label: 'General Screening' },
-                                    { value: 'Global Developmental Delay', label: 'Global Developmental Delay' },
-                                    { value: 'Hearing Impairment', label: 'Hearing Impairment' },
-                                    { value: 'Intellectual Disability', label: 'Intellectual Disability' },
-                                    { value: 'Learning Disability', label: 'Learning Disability' },
-                                    { value: 'Locomotor Disability', label: 'Locomotor Disability' },
-                                    { value: 'Low Vision', label: 'Low Vision' },
-                                    { value: 'Multiple Disability', label: 'Multiple Disability' },
-                                    { value: 'Muscular Dystrophy', label: 'Muscular Dystrophy' },
-                                    { value: 'Non Disable', label: 'Non Disable' },
-                                    { value: "Parkinson's Disease", label: "Parkinson's Disease" },
-                                    { value: 'Speech & Hearing Impaired', label: 'Speech & Hearing Impaired' },
-                                    { value: 'Speech Impairment', label: 'Speech Impairment' },
-                                    { value: 'Spinal Bifida', label: 'Spinal Bifida' },
-                                    { value: 'Spinal Cord Injury', label: 'Spinal Cord Injury' },
-                                    { value: 'Thalassemia', label: 'Thalassemia' },
-                                    { value: 'Visual Impaired', label: 'Visual Impaired' },
-                                ]}
+                                options={DISABILITY_TYPE_OPTIONS}
                             />
                             <Select
                                 label="Program"
@@ -404,14 +410,22 @@ export function AddBeneficiaryPage() {
                         <Button type="button" variant="secondary" className="w-full sm:w-32" onClick={() => navigate('/beneficiary/list')}>
                             Cancel
                         </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full sm:w-auto flex items-center justify-center gap-2"
-                            onClick={() => navigate('/assessments/new')}
-                        >
-                            <ClipboardList size={18} /> Add Assessment
-                        </Button>
+                        {canAddAssessment && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full sm:w-auto flex items-center justify-center gap-2"
+                                disabled={isLoading}
+                                onClick={(e) => {
+                                    // type="button" so Enter-key implicit submission still targets
+                                    // the plain Save button; requestSubmit keeps native validation.
+                                    continueToAssessmentRef.current = true;
+                                    (e.currentTarget as HTMLButtonElement).form?.requestSubmit();
+                                }}
+                            >
+                                <ClipboardList size={18} /> Save &amp; Continue to Assessment
+                            </Button>
+                        )}
                         <Button
                             type="submit"
                             className="w-full sm:w-32 flex items-center justify-center gap-2"

@@ -11,6 +11,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { ImportFileNumbersModal } from '@/components/beneficiary/ImportFileNumbersModal';
 import { ImportBeneficiariesModal } from '@/components/beneficiary/ImportBeneficiariesModal';
+import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
 import { auditService } from '@/services/auditService';
 import type { OfflineBeneficiary } from '@/lib/db';
 
@@ -31,6 +32,7 @@ export function BeneficiaryListPage() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isImportBeneficiariesModalOpen, setIsImportBeneficiariesModalOpen] = useState(false);
+    const [assignTarget, setAssignTarget] = useState<AssignFileNumberTarget | null>(null);
     const { canDeleteRecords, canImportFileNumbers, canImportBeneficiaries, canCreateRecords, canExportData } = usePermissions();
 
     const fetchBeneficiaries = useCallback(async () => {
@@ -257,6 +259,14 @@ export function BeneficiaryListPage() {
                 onClose={() => setIsImportBeneficiariesModalOpen(false)}
                 onSuccess={fetchBeneficiaries}
             />
+            {assignTarget && (
+                <AssignFileNumberModal
+                    key={assignTarget.systemId}
+                    target={assignTarget}
+                    onClose={() => setAssignTarget(null)}
+                    onSuccess={fetchBeneficiaries}
+                />
+            )}
 
             <Card className="p-4">
                 <div className="flex flex-wrap gap-2 mb-4">
@@ -420,7 +430,7 @@ export function BeneficiaryListPage() {
                                                     <p className="text-xs text-text-muted flex items-center gap-2">
                                                         <Phone size={14} /> {b.mobile_no || 'No phone'}
                                                     </p>
-                                                    <div className="pt-2">
+                                                    <div className="pt-2 flex items-center gap-2">
                                                         <div className={`text-[11px] font-bold px-2 py-1 rounded inline-flex items-center gap-1.5 ${b.file_number ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}`}>
                                                             {b.file_number ? (
                                                                 <>File No: <span className="text-[11px] font-black">{b.file_number}</span></>
@@ -428,6 +438,22 @@ export function BeneficiaryListPage() {
                                                                 'File No: Not Assigned'
                                                             )}
                                                         </div>
+                                                        {!b.file_number && canImportFileNumbers && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    setAssignTarget({
+                                                                        systemId: (b.isOffline ? b.offline_token : b.id) || stableId,
+                                                                        name: b.name || 'Unknown',
+                                                                        isLocalPending: !!b.isOffline,
+                                                                    });
+                                                                }}
+                                                                className="text-[11px] font-bold text-primary bg-primary/5 border border-primary/20 px-2 py-1 rounded hover:bg-primary/10 transition-colors"
+                                                            >
+                                                                Assign
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
 

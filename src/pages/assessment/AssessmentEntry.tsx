@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { ClipboardList, CheckCircle2, Wifi, WifiOff } from 'lucide-react';
 import { InitialAssessmentForm } from '@/components/assessment/InitialAssessmentForm';
 import { ClinicalAssessmentForm } from '@/components/assessment/ClinicalAssessmentForm';
@@ -20,12 +20,24 @@ const STEPS = [
 
 export function AssessmentEntryPage() {
     const { patientId } = useParams<{ patientId: string }>();
+    const location = useLocation();
+    // Demographics handed over from "Save & Continue to Assessment" on Add Beneficiary.
+    const prefill = (location.state as { prefillBeneficiary?: {
+        name?: string; age?: string; gender?: string; mobileNo?: string; city?: string; address?: string;
+    } } | null)?.prefillBeneficiary;
     const isOnline = useOnlineStatus();
     const [activeStep, setActiveStep] = useState<Step>(1);
     const [initialData, setInitialData] = useState<InitialAssessment | null>(null);
     const [clinicalData, setClinicalData] = useState<ClinicalAssessment | null>(null);
     const [initialFormData, setInitialFormData] = useState<Partial<InitialAssessment>>(() => ({
         assessment_date: new Date().toISOString().split('T')[0],
+        ...(prefill ? {
+            patient_name: prefill.name || '',
+            ...(prefill.age ? { age: Number(prefill.age) } : {}),
+            gender: prefill.gender || '',
+            phone: prefill.mobileNo || '',
+            village: prefill.city || prefill.address || '',
+        } : {}),
     }));
     const [isLoadingExisting, setIsLoadingExisting] = useState(false);
     const [saveNotice, setSaveNotice] = useState<{ message: string; offline: boolean } | null>(null);

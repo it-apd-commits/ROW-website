@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import type { OfflineBeneficiary } from '@/lib/db';
 import type { ServiceEntry } from '@/types/serviceEntry';
+import { usePermissions } from '@/hooks/usePermissions';
+import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
 
 interface Service {
     id: string;
@@ -36,6 +38,8 @@ export function BeneficiaryProfilePage() {
     const [beneficiary, setBeneficiary] = useState<OfflineBeneficiary | null>(null);
     const [services, setServices] = useState<Service[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [assignTarget, setAssignTarget] = useState<AssignFileNumberTarget | null>(null);
+    const { canImportFileNumbers } = usePermissions();
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -110,6 +114,14 @@ export function BeneficiaryProfilePage() {
 
     return (
         <div className="space-y-6 pb-12">
+            {assignTarget && (
+                <AssignFileNumberModal
+                    key={assignTarget.systemId}
+                    target={assignTarget}
+                    onClose={() => setAssignTarget(null)}
+                    onSuccess={fetchData}
+                />
+            )}
             {/* Header */}
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
@@ -129,6 +141,18 @@ export function BeneficiaryProfilePage() {
                             <span className={`px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-wider border ${beneficiary.file_number ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-100'}`}>
                                 {beneficiary.file_number ? `File No: ${beneficiary.file_number}` : 'File No: Not Assigned'}
                             </span>
+                            {!beneficiary.file_number && canImportFileNumbers && (
+                                <button
+                                    onClick={() => setAssignTarget({
+                                        systemId: String(beneficiary.id),
+                                        name: beneficiary.name,
+                                        isLocalPending: false,
+                                    })}
+                                    className="px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-wider text-primary bg-primary/5 border border-primary/20 hover:bg-primary/10 transition-colors"
+                                >
+                                    Assign File No
+                                </button>
+                            )}
                             <span className="hidden sm:inline">•</span>
                             <span>Registered on {new Date(beneficiary.date_of_registration).toLocaleDateString()}</span>
                         </div>
