@@ -11,9 +11,9 @@ export const DROPDOWNS = {
         'Stump pain', 'Prosthetic training', 'Other',
     ],
 
-    LimbSide: ['Left', 'Right', 'Bilateral'],
+    LimbSide: ['Left', 'Right', 'Bilateral', 'Not Applicable'],
 
-    Joint: ['Shoulder', 'Elbow', 'Wrist', 'Hip', 'Knee', 'Ankle', 'Spine', 'Multiple'],
+    Joint: ['Shoulder', 'Elbow', 'Wrist', 'Hip', 'Knee', 'Ankle', 'Spine', 'Multiple', 'Not Applicable'],
 
     Documents: ['BPL', 'APL', 'AADHAR', 'UDID', 'Not Applicable'],
 

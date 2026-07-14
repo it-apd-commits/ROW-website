@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
-import { ClipboardList, CheckCircle2, Wifi, WifiOff } from 'lucide-react';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import { ClipboardList, CheckCircle2, Wifi, WifiOff, UserPlus } from 'lucide-react';
 import { InitialAssessmentForm } from '@/components/assessment/InitialAssessmentForm';
 import { ClinicalAssessmentForm } from '@/components/assessment/ClinicalAssessmentForm';
 import { FollowUpAssessmentForm } from '@/components/assessment/FollowUpAssessmentForm';
@@ -21,6 +21,7 @@ const STEPS = [
 export function AssessmentEntryPage() {
     const { patientId } = useParams<{ patientId: string }>();
     const location = useLocation();
+    const navigate = useNavigate();
     // Demographics handed over from "Save & Continue to Assessment" on Add Beneficiary.
     const prefill = (location.state as { prefillBeneficiary?: {
         name?: string; age?: string; gender?: string; mobileNo?: string; city?: string; address?: string;
@@ -113,6 +114,13 @@ export function AssessmentEntryPage() {
         setActiveStep(3);
     };
 
+    // Start the next person (field-camp flow: assess one, immediately register
+    // the next). Goes to Add Beneficiary, whose "Save & Continue to Assessment"
+    // returns here with the demographics pre-filled.
+    const startNewBeneficiary = () => {
+        navigate('/beneficiary/add');
+    };
+
     // Patient ID is now auto-generated — no lookup needed on typing
 
     return (
@@ -132,8 +140,18 @@ export function AssessmentEntryPage() {
                         </p>
                     </div>
                 </div>
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border self-start sm:self-auto ${isOnline ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
-                    {isOnline ? <><Wifi size={14} /> Online</> : <><WifiOff size={14} /> Offline</>}
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                    {step2Done && (
+                        <button
+                            onClick={startNewBeneficiary}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-primary text-white hover:bg-primary/90 transition-colors min-h-[32px]"
+                        >
+                            <UserPlus size={14} /> Add Another Beneficiary
+                        </button>
+                    )}
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border ${isOnline ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+                        {isOnline ? <><Wifi size={14} /> Online</> : <><WifiOff size={14} /> Offline</>}
+                    </div>
                 </div>
             </div>
 
@@ -206,11 +224,23 @@ export function AssessmentEntryPage() {
             )}
 
             {!isLoadingExisting && activeStep === 3 && (
-                <FollowUpAssessmentForm
-                    key={initialData ? initialData.patient_id : 'new'}
-                    initialData={initialData}
-                    onEditClinical={() => setActiveStep(2)}
-                />
+                <>
+                    <FollowUpAssessmentForm
+                        key={initialData ? initialData.patient_id : 'new'}
+                        initialData={initialData}
+                        onEditClinical={() => setActiveStep(2)}
+                    />
+                    {step2Done && (
+                        <div className="flex justify-center pt-2">
+                            <button
+                                onClick={startNewBeneficiary}
+                                className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm"
+                            >
+                                <UserPlus size={18} /> Add Another Beneficiary
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
