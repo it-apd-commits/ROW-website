@@ -2,16 +2,30 @@ import { db } from './db';
 import { supabase } from './supabase';
 import { TokenService } from '@/services/tokenService';
 
+// In-flight guard: syncPendingRecords is triggered from many places (online
+// handlers, App.tsx, forms, SyncDashboard). Concurrent runs would each read the
+// same pending Dexie rows and insert duplicates on the server, so overlapping
+// calls await the already-running sync instead of starting a new one.
+let syncInFlight: Promise<void> | null = null;
+
 export const SyncService = {
     async syncPendingRecords() {
         if (!navigator.onLine) return;
-        // Beneficiaries must sync first so their server-assigned file_number
-        // can be propagated to any pending service entries before those sync.
-        await SyncService.syncPendingBeneficiaries();
-        await Promise.all([
-            SyncService.syncPendingServiceEntries(),
-            SyncService.syncPendingAssessments(),
-        ]);
+        if (syncInFlight) return syncInFlight;
+        syncInFlight = (async () => {
+            try {
+                // Beneficiaries must sync first so their server-assigned file_number
+                // can be propagated to any pending service entries before those sync.
+                await SyncService.syncPendingBeneficiaries();
+                await Promise.all([
+                    SyncService.syncPendingServiceEntries(),
+                    SyncService.syncPendingAssessments(),
+                ]);
+            } finally {
+                syncInFlight = null;
+            }
+        })();
+        return syncInFlight;
     },
 
     async syncPendingBeneficiaries() {

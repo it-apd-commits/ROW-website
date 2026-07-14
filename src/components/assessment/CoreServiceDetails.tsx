@@ -1,4 +1,4 @@
-import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
@@ -76,6 +76,9 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
 
         const [errors, setErrors] = useState<Record<string, string>>({});
         const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+        // Snapshot of the last payload notified to the parent — prevents re-notifying
+        // (and thus re-render loops) when the payload content hasn't actually changed.
+        const lastNotifiedRef = useRef<string>('');
 
         const handleChange = (field: keyof ServiceFormData, value: string | null) => {
             setFormData(prev => ({ ...prev, [field]: value }));
@@ -89,7 +92,8 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
 
             ServiceEntryService.getHistoryByFileNumber(formData.file_number)
                 .then(history => {
-                    const count = history.length;
+                    // Count distinct visits, not rows — each visit saves one row per service
+                    const count = new Set(history.map(h => h.schedule_date)).size;
                     const nextFollowUp = count === 0
                         ? 'Initial Visit'
                         : count <= 4
@@ -154,7 +158,10 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
                 formData.service_provider_code && formData.mode_of_service;
 
             if (!hasBase || filledRows.length === 0) {
-                onServiceDataChange(null, false);
+                if (lastNotifiedRef.current !== 'null') {
+                    lastNotifiedRef.current = 'null';
+                    onServiceDataChange(null, false);
+                }
                 return;
             }
 
@@ -176,6 +183,9 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
                 filledRows.length > 0 &&
                 !(formData.status === 'AVAILED' && !formData.end_date));
 
+            const snapshot = JSON.stringify({ payloads, isValid });
+            if (snapshot === lastNotifiedRef.current) return;
+            lastNotifiedRef.current = snapshot;
             onServiceDataChange(payloads, isValid);
         }, [formData, selectedServices, onServiceDataChange]);
 

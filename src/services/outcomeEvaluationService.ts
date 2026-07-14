@@ -23,6 +23,33 @@ interface InitialRecord {
     primary_condition: string | null;
 }
 
+// Supabase caps selects at 1000 rows by default; page through .range()
+// so results aren't silently truncated on large tables.
+const fetchAllRows = async <T>(
+    buildQuery: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }> }
+): Promise<T[]> => {
+    const PAGE_SIZE = 1000;
+    const rows: T[] = [];
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+        const { data, error } = await buildQuery().range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        const page = data ?? [];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+    return rows;
+};
+
+// Batch ids for .in() filters so request URLs stay bounded.
+const ID_CHUNK_SIZE = 200;
+const chunk = <T>(arr: T[], size: number): T[][] => {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+        out.push(arr.slice(i, i + size));
+    }
+    return out;
+};
+
 function classifyNumeric(
     baseline: number | null,
     current: number | null,
@@ -92,11 +119,10 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
     const scale = getScale(filters.scaleId);
     if (!scale) throw new Error(`Unknown scale: ${filters.scaleId}`);
 
-    const { data: initials, error: initErr } = await supabase
+    const initials = await fetchAllRows<InitialRecord>(() => supabase
         .from('initial_assessment')
-        .select('patient_id, patient_name, primary_condition');
-    if (initErr) throw initErr;
-    if (!initials || initials.length === 0) return [];
+        .select('patient_id, patient_name, primary_condition'));
+    if (initials.length === 0) return [];
 
     const initialMap = new Map<string, InitialRecord>();
     for (const i of initials as InitialRecord[]) {
@@ -105,41 +131,50 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
 
     const patientIds = initials.map((i: InitialRecord) => i.patient_id);
 
-    let clinicalQuery = supabase
-        .from('clinical_assessment')
-        .select('*')
-        .in('patient_id', patientIds)
-        .order('created_at', { ascending: true });
+    const clinicals: BaselineRecord[] = [];
+    const followUps: FollowUpRecord[] = [];
 
-    if (scale.condition) {
-        clinicalQuery = clinicalQuery.eq('condition', scale.condition);
+    for (const idBatch of chunk(patientIds, ID_CHUNK_SIZE)) {
+        const [batchClinicals, batchFollowUps] = await Promise.all([
+            fetchAllRows<BaselineRecord>(() => {
+                let clinicalQuery = supabase
+                    .from('clinical_assessment')
+                    .select('*')
+                    .in('patient_id', idBatch)
+                    .order('created_at', { ascending: true });
+
+                if (scale.condition) {
+                    clinicalQuery = clinicalQuery.eq('condition', scale.condition);
+                }
+
+                if (filters.disabilityType) {
+                    clinicalQuery = clinicalQuery.eq('disability_type', filters.disabilityType);
+                }
+
+                return clinicalQuery;
+            }),
+            fetchAllRows<FollowUpRecord>(() => {
+                let followUpQuery = supabase
+                    .from('follow_up_assessment')
+                    .select('*')
+                    .in('patient_id', idBatch)
+                    .order('visit_date', { ascending: false });
+
+                if (filters.fromDate) {
+                    followUpQuery = followUpQuery.gte('visit_date', filters.fromDate);
+                }
+                if (filters.toDate) {
+                    followUpQuery = followUpQuery.lte('visit_date', filters.toDate);
+                }
+
+                return followUpQuery;
+            }),
+        ]);
+        clinicals.push(...batchClinicals);
+        followUps.push(...batchFollowUps);
     }
 
-    if (filters.disabilityType) {
-        clinicalQuery = clinicalQuery.eq('disability_type', filters.disabilityType);
-    }
-
-    let followUpQuery = supabase
-        .from('follow_up_assessment')
-        .select('*')
-        .in('patient_id', patientIds)
-        .order('visit_date', { ascending: false });
-
-    if (filters.fromDate) {
-        followUpQuery = followUpQuery.gte('visit_date', filters.fromDate);
-    }
-    if (filters.toDate) {
-        followUpQuery = followUpQuery.lte('visit_date', filters.toDate);
-    }
-
-    const [
-        { data: clinicals, error: clinErr },
-        { data: followUps, error: fuErr },
-    ] = await Promise.all([clinicalQuery, followUpQuery]);
-
-    if (clinErr) throw clinErr;
-    if (!clinicals || clinicals.length === 0) return [];
-    if (fuErr) throw fuErr;
+    if (clinicals.length === 0) return [];
 
     const baselineMap = new Map<string, BaselineRecord>();
     for (const c of clinicals as BaselineRecord[]) {
@@ -149,11 +184,9 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
     }
 
     const latestFollowUpMap = new Map<string, FollowUpRecord>();
-    if (followUps) {
-        for (const f of followUps as FollowUpRecord[]) {
-            if (!latestFollowUpMap.has(f.patient_id)) {
-                latestFollowUpMap.set(f.patient_id, f);
-            }
+    for (const f of followUps as FollowUpRecord[]) {
+        if (!latestFollowUpMap.has(f.patient_id)) {
+            latestFollowUpMap.set(f.patient_id, f);
         }
     }
 

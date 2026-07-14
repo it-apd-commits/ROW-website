@@ -119,29 +119,40 @@ export const exerciseService = {
     },
 
     async savePatientExercises(patientId: string, exercises: SelectedExercise[]): Promise<void> {
-        // Delete existing recommendations for this patient
+        // Capture the ids of the existing recommendations so the old plan is only
+        // removed after the new rows are safely stored (insert first, delete after).
+        const { data: existing, error: fetchError } = await supabase
+            .from('patient_recommended_exercises')
+            .select('id')
+            .eq('patient_id', patientId);
+        if (fetchError) { console.error('Fetch patient exercises error:', fetchError); throw fetchError; }
+
+        // Insert new recommendations
+        if (exercises.length > 0) {
+            const records = exercises.map(ex => ({
+                patient_id: patientId,
+                exercise_id: ex.exercise.id!,
+                times: ex.times || null,
+                repetitions: ex.repetitions || null,
+                sets: ex.sets || null,
+                hold: ex.hold || null,
+                notes: ex.notes || null,
+            }));
+
+            const { error: insertError } = await supabase
+                .from('patient_recommended_exercises')
+                .insert(records);
+            if (insertError) { console.error('Insert patient exercises error:', insertError); throw insertError; }
+        }
+
+        // Delete only the old rows (never the just-inserted ones)
+        const oldIds = (existing || []).map(r => r.id);
+        if (oldIds.length === 0) return;
+
         const { error: deleteError } = await supabase
             .from('patient_recommended_exercises')
             .delete()
-            .eq('patient_id', patientId);
+            .in('id', oldIds);
         if (deleteError) { console.error('Delete patient exercises error:', deleteError); throw deleteError; }
-
-        // Insert new recommendations
-        if (exercises.length === 0) return;
-
-        const records = exercises.map(ex => ({
-            patient_id: patientId,
-            exercise_id: ex.exercise.id!,
-            times: ex.times || null,
-            repetitions: ex.repetitions || null,
-            sets: ex.sets || null,
-            hold: ex.hold || null,
-            notes: ex.notes || null,
-        }));
-
-        const { error: insertError } = await supabase
-            .from('patient_recommended_exercises')
-            .insert(records);
-        if (insertError) { console.error('Insert patient exercises error:', insertError); throw insertError; }
     },
 };

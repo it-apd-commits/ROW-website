@@ -163,12 +163,9 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
             const msg = err instanceof Error ? err.message
                 : (err && typeof err === 'object' && 'message' in err) ? String((err as { message: string }).message)
                 : 'Failed to save';
-            // When offline, the save succeeded locally — only show errors for validation failures
-            if (!isOnline) {
-                setErrors({ _form: 'Saved offline. Will sync when connection is restored.' });
-            } else {
-                setErrors({ _form: msg });
-            }
+            // createInitial only throws when the save genuinely failed (a successful
+            // offline save returns normally) — so always surface the error.
+            setErrors({ _form: msg });
         } finally {
             setIsSaving(false);
         }

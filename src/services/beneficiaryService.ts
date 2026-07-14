@@ -95,12 +95,17 @@ export const findOrCreateBeneficiary = async (
 export const updateBeneficiaryFileNumber = async (systemId: string, fileNumber: string): Promise<UpdateResult> => {
     try {
         // 1. Try updating in Supabase (for synced records)
-        // We match by either ID (UUID) or offline_token
-        const { data, error } = await supabase
+        // Match by ID (UUID) or offline_token. Non-UUID systemIds (OFF-/import-
+        // tokens) must not go through id.eq — Postgres fails the whole query
+        // with a uuid cast error (22P02) and the server never gets updated.
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(systemId);
+        let updateQuery = supabase
             .from('beneficiaries')
-            .update({ file_number: fileNumber })
-            .or(`id.eq.${systemId},offline_token.eq.${systemId}`)
-            .select();
+            .update({ file_number: fileNumber });
+        updateQuery = isUuid
+            ? updateQuery.or(`id.eq.${systemId},offline_token.eq.${systemId}`)
+            : updateQuery.eq('offline_token', systemId);
+        const { data, error } = await updateQuery.select();
 
         if (error) {
             console.error('Supabase update error:', error);

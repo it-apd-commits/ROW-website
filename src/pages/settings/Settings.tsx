@@ -53,7 +53,7 @@ export function SettingsPage() {
 
         try {
             const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-                redirectTo: window.location.origin + '/reset-password',
+                redirectTo: window.location.origin + '/update-password',
             });
             if (error) throw error;
             alert('Password reset email sent. Please check your inbox.');
@@ -107,7 +107,8 @@ export function SettingsPage() {
         }
 
         try {
-            await db.beneficiaries.clear();
+            // Clear ALL Dexie tables (beneficiaries, service entries, assessments, metadata)
+            await Promise.all(db.tables.map(table => table.clear()));
             localStorage.clear();
             alert('Cache cleared. The application will now reload.');
             window.location.reload();

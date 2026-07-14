@@ -59,11 +59,11 @@ export function AssessmentEntryPage() {
     const step1Done = !!initialData;
     const step2Done = !!clinicalData;
 
-    const getStepState = (step: Step): 'completed' | 'active' => {
-        if (step === 1 && step1Done && activeStep !== 1) return 'completed';
-        if (step === 2 && step2Done && activeStep !== 2) return 'completed';
+    const getStepState = (step: Step): 'completed' | 'active' | 'upcoming' => {
         if (step === activeStep) return 'active';
-        return 'completed';
+        if (step === 1 && step1Done) return 'completed';
+        if (step === 2 && step2Done) return 'completed';
+        return 'upcoming';
     };
 
     // Load existing data if user returns to a patient
@@ -164,11 +164,13 @@ export function AssessmentEntryPage() {
                                 className={`flex items-center gap-2 px-2 sm:px-4 py-2.5 rounded-lg text-sm font-medium transition-all w-full cursor-pointer min-h-[44px]
                                     ${state === 'active' ? 'bg-primary text-white shadow-sm' : ''}
                                     ${state === 'completed' ? 'bg-green-50 text-green-700 hover:bg-green-100' : ''}
+                                    ${state === 'upcoming' ? 'bg-gray-50 text-gray-500 hover:bg-gray-100' : ''}
                                 `}
                             >
                                 <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0
                                     ${state === 'active' ? 'bg-white/20 text-white' : ''}
                                     ${state === 'completed' ? 'bg-green-200 text-green-800' : ''}
+                                    ${state === 'upcoming' ? 'bg-gray-200 text-gray-600' : ''}
                                 `}>
                                     {state === 'completed' ? <CheckCircle2 size={14} /> : step.num}
                                 </span>

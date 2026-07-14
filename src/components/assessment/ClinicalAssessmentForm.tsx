@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
@@ -131,10 +131,10 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
     const [serviceDataValid, setServiceDataValid] = useState(false);
     const serviceRef = useRef<CoreServiceDetailsRef>(null);
 
-    const handleServiceDataChange = (payloads: ServiceEntryPayload[] | null, isValid: boolean) => {
+    const handleServiceDataChange = useCallback((payloads: ServiceEntryPayload[] | null, isValid: boolean) => {
         setServiceData(payloads);
         setServiceDataValid(isValid);
-    };
+    }, []);
 
     if (!initialData) {
         return (
@@ -216,6 +216,12 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
 
     const handleSubmit = async () => {
         if (!validate()) return;
+        // Validate Core Service Details (date consistency, AVAILED end date, etc.)
+        // when the section has been filled — its errors are shown inline in the card.
+        if (serviceData && serviceData.length > 0 && serviceRef.current && !serviceRef.current.validate()) {
+            setErrors({ _form: 'Please fix the errors in Core Service Details before saving.' });
+            return;
+        }
         if (isEdit && !isOnline) {
             setErrors({ _form: 'Editing a clinical assessment requires an active connection. Please reconnect and try again.' });
             return;
@@ -399,7 +405,7 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
                             min={0}
                             max={10}
                             value={data.vas_pre ?? ''}
-                            onChange={e => set('vas_pre', parseInt(e.target.value) || 0)}
+                            onChange={e => { const v = parseInt(e.target.value); set('vas_pre', Number.isNaN(v) ? null : v); }}
                             error={errors.vas_pre}
                             required
                         />

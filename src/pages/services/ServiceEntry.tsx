@@ -116,7 +116,9 @@ export function ServiceEntryPage() {
             if (!id && formData.file_number) {
                 try {
                     const history = await ServiceEntryService.getHistoryByFileNumber(formData.file_number);
-                    const count = history.length;
+                    // Multi-service visits save one row per service sharing the same
+                    // schedule_date — count distinct visit dates, not raw rows.
+                    const count = new Set(history.map(h => h.schedule_date)).size;
                     const nextFollowUp = count === 0
                         ? 'Initial Visit'
                         : count <= 4

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
-import { Calendar, MapPin, Clock, Trash2, Archive, CheckCircle, XCircle } from 'lucide-react';
+import { Calendar, MapPin, Clock, Trash2, Archive, CheckCircle, XCircle, Bus } from 'lucide-react';
+import { BUS_BADGE_STYLES } from '@/constants/buses';
 
 interface Schedule {
     id: string;
@@ -15,6 +16,8 @@ interface Schedule {
     created_at: string;
     status?: string; // scheduled, completed, cancelled
     trip_id?: string;
+    bus_number?: string;
+    donor?: string;
 }
 
 export function ScheduleHistory() {
@@ -53,15 +56,20 @@ export function ScheduleHistory() {
         fetchSchedules();
     }, [filter, fetchSchedules]);
 
-    const handleArchiveSchedule = async (month: number, year: number) => {
-        if (!confirm(`Archive all schedules for ${getMonthName(month)} ${year}?`)) return;
+    const handleArchiveSchedule = async (month: number, year: number, busNumber?: string) => {
+        const busLabel = busNumber ? ` (${busNumber})` : '';
+        if (!confirm(`Archive all schedules for ${getMonthName(month)} ${year}${busLabel}?`)) return;
 
         try {
-            const { error } = await supabase
+            // Scope archiving to the group's bus so other buses' schedules
+            // for the same month stay active.
+            let query = supabase
                 .from('monthly_schedules')
                 .update({ is_active: false })
                 .eq('month', month)
                 .eq('year', year);
+            if (busNumber) query = query.eq('bus_number', busNumber);
+            const { error } = await query;
 
             if (error) throw error;
 
@@ -96,13 +104,15 @@ export function ScheduleHistory() {
         return new Date(2000, month - 1, 1).toLocaleString('default', { month: 'long' });
     };
 
-    // Group schedules by month-year
+    // Group schedules by month-year + bus + active status so each bus's upload
+    // (and archived vs active versions) appears as its own group
     const groupedSchedules = schedules.reduce((acc, schedule) => {
-        const key = `${schedule.month}-${schedule.year}`;
+        const key = `${schedule.month}-${schedule.year}-${schedule.bus_number || 'no-bus'}-${schedule.is_active ? 'active' : 'archived'}`;
         if (!acc[key]) {
             acc[key] = {
                 month: schedule.month,
                 year: schedule.year,
+                bus_number: schedule.bus_number,
                 is_active: schedule.is_active,
                 items: [],
                 completed: 0,
@@ -113,7 +123,7 @@ export function ScheduleHistory() {
         acc[key].total++;
         if (schedule.status === 'completed') acc[key].completed++;
         return acc;
-    }, {} as Record<string, { month: number; year: number; is_active: boolean; items: Schedule[]; completed: number; total: number }>);
+    }, {} as Record<string, { month: number; year: number; bus_number?: string; is_active: boolean; items: Schedule[]; completed: number; total: number }>);
 
     return (
         <Card className="p-6">
@@ -160,6 +170,12 @@ export function ScheduleHistory() {
                                     <h4 className="font-bold text-lg text-text-main">
                                         {getMonthName(group.month)} {group.year}
                                     </h4>
+                                    {group.bus_number && (
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${BUS_BADGE_STYLES[group.bus_number] ? `${BUS_BADGE_STYLES[group.bus_number].bg} ${BUS_BADGE_STYLES[group.bus_number].text}` : 'bg-gray-100 text-gray-600'}`}>
+                                            <Bus size={12} />
+                                            {group.bus_number}
+                                        </span>
+                                    )}
                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${group.is_active
                                         ? 'bg-green-100 text-green-700'
                                         : 'bg-gray-100 text-gray-600'
@@ -184,7 +200,7 @@ export function ScheduleHistory() {
                                     {group.is_active && (
                                         <Button
                                             variant="outline"
-                                            onClick={() => handleArchiveSchedule(group.month, group.year)}
+                                            onClick={() => handleArchiveSchedule(group.month, group.year, group.bus_number)}
                                             className="text-xs py-1 px-3 text-orange-600 border-orange-200 hover:bg-orange-50"
                                         >
                                             <Archive size={14} className="mr-1" />
@@ -229,6 +245,11 @@ export function ScheduleHistory() {
                                         {schedule.address && (
                                             <p className="text-xs text-text-muted line-clamp-2">
                                                 {schedule.address}
+                                            </p>
+                                        )}
+                                        {schedule.donor && (
+                                            <p className="text-xs text-text-muted mt-1">
+                                                Donor: <span className="font-medium">{schedule.donor}</span>
                                             </p>
                                         )}
                                     </div>

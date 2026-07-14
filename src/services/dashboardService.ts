@@ -1,6 +1,24 @@
 import { supabase } from '@/lib/supabase';
 import type { BeneficiaryChartData, BusCoverageData, ChartFilter, TimeFrame } from '@/types/dashboard';
 
+// --- Helper for pagination ---
+// Supabase caps selects at 1000 rows by default; page through .range()
+// so stats aren't silently truncated on large tables.
+const fetchAllRows = async <T>(
+    buildQuery: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }> }
+): Promise<T[]> => {
+    const PAGE_SIZE = 1000;
+    const rows: T[] = [];
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+        const { data, error } = await buildQuery().range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        const page = data ?? [];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+    }
+    return rows;
+};
+
 // --- Helper for aggregation ---
 const formatDateKey = (dateStr: string, timeframe: TimeFrame): string => {
     const date = new Date(dateStr);
@@ -31,25 +49,24 @@ export const fetchBeneficiaryStats = async (
     filter: ChartFilter
 ): Promise<BeneficiaryChartData[]> => {
     try {
-        let query = supabase
-            .from('beneficiaries')
-            .select('id, date_of_registration, district, city');
+        const data = await fetchAllRows<{ id: string; date_of_registration: string | null; district: string | null; city: string | null }>(() => {
+            let query = supabase
+                .from('beneficiaries')
+                .select('id, date_of_registration, district, city');
 
-        if (filter.startDate) {
-            query = query.gte('date_of_registration', filter.startDate);
-        }
-        if (filter.endDate) {
-            query = query.lte('date_of_registration', filter.endDate);
-        }
-        if (filter.location && filter.location !== 'All') {
-            // Trying both district and city for flexibility
-            query = query.or(`district.eq.${filter.location},city.eq.${filter.location}`);
-        }
+            if (filter.startDate) {
+                query = query.gte('date_of_registration', filter.startDate);
+            }
+            if (filter.endDate) {
+                query = query.lte('date_of_registration', filter.endDate);
+            }
+            if (filter.location && filter.location !== 'All') {
+                // Trying both district and city for flexibility
+                query = query.or(`district.eq.${filter.location},city.eq.${filter.location}`);
+            }
 
-        const { data, error } = await query;
-
-        if (error) throw error;
-        if (!data) return [];
+            return query;
+        });
 
         // Aggregate Data
         const groupedData: Record<string, number> = {};
@@ -190,17 +207,16 @@ export const fetchServiceStats = async (
     filter: ChartFilter
 ): Promise<ServiceChartData[]> => {
     try {
-        let query = supabase
-            .from('service_entries')
-            .select('id, schedule_date');
+        const data = await fetchAllRows<{ id: string; schedule_date: string | null }>(() => {
+            let query = supabase
+                .from('service_entries')
+                .select('id, schedule_date');
 
-        if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
-        if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
+            if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
+            if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
 
-        const { data, error } = await query;
-
-        if (error) throw error;
-        if (!data) return [];
+            return query;
+        });
 
         const groupedData: Record<string, number> = {};
 
@@ -229,17 +245,18 @@ export const fetchServiceSummary = async (
     filter: ChartFilter
 ): Promise<ServiceSummaryStats> => {
     try {
-        let query = supabase
-            .from('service_entries')
-            .select('id, schedule_date, service_code, file_number');
+        const data = await fetchAllRows<{ id: string; schedule_date: string | null; service_code: string; file_number: string | null }>(() => {
+            let query = supabase
+                .from('service_entries')
+                .select('id, schedule_date, service_code, file_number');
 
-        if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
-        if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
+            if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
+            if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
 
-        const { data, error } = await query;
+            return query;
+        });
 
-        if (error) throw error;
-        if (!data || data.length === 0) return {
+        if (data.length === 0) return {
             totalServices: 0,
             totalBeneficiaries: 0,
             mostActiveService: 'N/A',

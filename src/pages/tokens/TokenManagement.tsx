@@ -23,6 +23,9 @@ interface Beneficiary {
     city: string;
 }
 
+const formatLocalDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export function TokenManagementPage() {
     const { role } = useAuth();
     const [loading, setLoading] = useState(false);
@@ -38,10 +41,7 @@ export function TokenManagementPage() {
     const [candidateMatches, setCandidateMatches] = useState<BeneficiaryCandidate[]>([]);
     const [showCandidateModal, setShowCandidateModal] = useState(false);
 
-    const getTodayStr = () => {
-        const d = new Date();
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
+    const getTodayStr = () => formatLocalDate(new Date());
 
     const getTimeStr = () => {
         const d = new Date();
@@ -111,7 +111,7 @@ export function TokenManagementPage() {
 
             // Also fetch centers already used in tokens this month (for filter dropdown)
             const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
-            const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+            const lastDay = formatLocalDate(new Date(year, month, 0));
 
             const { data: tokenCenters } = await supabase
                 .from('tokens')
@@ -149,7 +149,7 @@ export function TokenManagementPage() {
 
                 if (viewMode === 'Month') {
                     const firstDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-                    const lastDay = new Date(year, month + 1, 0).toISOString().split('T')[0];
+                    const lastDay = formatLocalDate(new Date(year, month + 1, 0));
                     query = query.gte('date', firstDay).lte('date', lastDay);
                 } else {
                     query = query.eq('date', filterDate);
@@ -230,7 +230,7 @@ export function TokenManagementPage() {
         });
 
         if (newToken) {
-            if (filterDate === formData.date && filterCenter === formData.center) {
+            if (filterDate === formData.date && (filterCenter === 'All Centers' || filterCenter === formData.center)) {
                 await fetchTokens();
             }
             fetchCenters();
@@ -424,7 +424,9 @@ Phone: ${token.phone_number || '-'}
         fetchTokens();
     };
 
-    const currentServing = tokens.find(t => t.status === 'Waiting');
+    const currentServing = tokens
+        .filter(t => t.status === 'Waiting')
+        .reduce<DailyToken | undefined>((min, t) => (!min || t.sequence_number < min.sequence_number ? t : min), undefined);
 
     return (
         <div className="space-y-6">

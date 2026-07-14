@@ -16,14 +16,19 @@ export const assessmentService = {
             const { data, error } = await supabase
                 .from('initial_assessment')
                 .select('patient_id')
-                .like('patient_id', `${prefix}%`)
-                .order('patient_id', { ascending: false })
-                .limit(1);
+                .like('patient_id', `${prefix}%`);
 
             let seq = 1;
             if (!error && data && data.length > 0) {
-                const lastNum = parseInt(data[0].patient_id.split('-').pop() || '0', 10);
-                if (!isNaN(lastNum)) seq = lastNum + 1;
+                // Only numeric final segments count — offline IDs (O001) must be ignored,
+                // otherwise 'O...' sorts above digits and the sequence would reset/collide.
+                const maxNum = data.reduce((max: number, row: { patient_id: string }) => {
+                    const segment = row.patient_id.split('-').pop() || '';
+                    if (!/^\d+$/.test(segment)) return max;
+                    const num = parseInt(segment, 10);
+                    return num > max ? num : max;
+                }, 0);
+                seq = maxNum + 1;
             }
             return `${prefix}${String(seq).padStart(4, '0')}`;
         }
@@ -87,9 +92,13 @@ export const assessmentService = {
                 .eq('patient_id', patientId)
                 .select()
                 .single();
-            if (error) { console.error('Update initial assessment error:', error); throw error; }
-            await db.offline_initial_assessments.update(patientId, { ...data, sync_status: 'synced' });
-            return result as InitialAssessment;
+            if (!error) {
+                await db.offline_initial_assessments.update(patientId, { ...data, sync_status: 'synced' });
+                return result as InitialAssessment;
+            }
+            // PGRST116 = no row matched: record was created offline and hasn't synced
+            // yet — fall through to the local update path instead of blocking the save.
+            if (error.code !== 'PGRST116') { console.error('Update initial assessment error:', error); throw error; }
         }
         // Offline: update local record and mark pending for sync
         const existing = await db.offline_initial_assessments.get(patientId);
@@ -150,7 +159,7 @@ export const assessmentService = {
     async updateClinical(id: number, data: Partial<ClinicalAssessment>): Promise<ClinicalAssessment> {
         const patientId = data.patient_id;
 
-        if (!navigator.onLine) {
+        const updateLocally = async (): Promise<ClinicalAssessment> => {
             if (!patientId) throw new Error('patient_id is required for offline clinical update');
             const existing = await db.offline_clinical_assessments.get(patientId);
             const updated: OfflineClinicalAssessment = existing
@@ -158,7 +167,9 @@ export const assessmentService = {
                 : { patient_id: patientId, ...data, sync_status: 'pending' } as OfflineClinicalAssessment;
             await db.offline_clinical_assessments.put(updated);
             return updated as ClinicalAssessment;
-        }
+        };
+
+        if (!navigator.onLine) return updateLocally();
 
         const { data: result, error } = await supabase
             .from('clinical_assessment')
@@ -166,7 +177,13 @@ export const assessmentService = {
             .eq('id', id)
             .select()
             .single();
-        if (error) { console.error('Update clinical assessment error:', error); throw error; }
+        if (error) {
+            // PGRST116 = no row matched: record was created offline and hasn't synced
+            // yet — fall back to the local update path instead of blocking the save.
+            if (error.code === 'PGRST116') return updateLocally();
+            console.error('Update clinical assessment error:', error);
+            throw error;
+        }
 
         // Keep local cache consistent so getClinical() reflects the latest data
         if (patientId) {
@@ -251,15 +268,17 @@ export const assessmentService = {
             if (!error && data) serverRecords.push(...(data as FollowUpAssessment[]));
         }
 
-        // Merge unsynced local sessions so they appear immediately after offline save
-        const localPending = await db.offline_follow_up_assessments
+        // Merge local sessions so they appear immediately after offline save.
+        // When offline, include synced (cached) sessions too — otherwise history
+        // looks shorter than it is and new sessions reuse existing session numbers.
+        const localRecords = await db.offline_follow_up_assessments
             .where('patient_id')
             .equals(patientId)
-            .filter(r => r.sync_status !== 'synced')
+            .filter(r => !navigator.onLine || r.sync_status !== 'synced')
             .sortBy('session_number');
 
         const serverSessionNums = new Set(serverRecords.map(r => r.session_number));
-        const onlyLocal = localPending
+        const onlyLocal = localRecords
             .filter(r => !serverSessionNums.has(r.session_number))
             .map(r => ({ ...r, id: undefined } as FollowUpAssessment));
 

@@ -36,6 +36,7 @@ function SidebarContent({ collapsed, mobileOpen, onMobileClose, onToggleCollapse
     const [searchResults, setSearchResults] = useState<{ id: string; name: string; file_number: string }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const searchRef = useRef<HTMLDivElement>(null);
+    const latestQueryRef = useRef('');
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -49,6 +50,7 @@ function SidebarContent({ collapsed, mobileOpen, onMobileClose, onToggleCollapse
 
     const handleSearch = async (query: string) => {
         setSearchQuery(query);
+        latestQueryRef.current = query;
         if (query.trim().length < 2) {
             setSearchResults([]);
             setIsSearching(false);
@@ -59,10 +61,14 @@ function SidebarContent({ collapsed, mobileOpen, onMobileClose, onToggleCollapse
             const { data, error } = await supabase
                 .from('beneficiaries')
                 .select('id, name, file_number')
-                .or(`name.ilike.%${query}%,file_number.ilike.%${query}%`)
+                // Use PostgREST `*` wildcard — avoids URL percent-encoding issues
+                // that occur when `%` is used directly in .or() filter strings.
+                .or(`name.ilike.*${query}*,file_number.ilike.*${query}*`)
                 .limit(5);
 
             if (error) throw error;
+            // Ignore stale responses from earlier, slower queries
+            if (latestQueryRef.current !== query) return;
             setSearchResults(data || []);
             setIsSearching(true);
         } catch (err) {

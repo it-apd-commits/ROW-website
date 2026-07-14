@@ -17,7 +17,11 @@ import {
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Link } from 'react-router-dom';
-import { fetchCalendarEvents, updateScheduleStatus, type CalendarEvent } from '@/services/calendarService';
+import { fetchCalendarEvents, fetchScheduleDonors, updateScheduleStatus, type CalendarEvent } from '@/services/calendarService';
+import { BUSES, BUS_BADGE_STYLES } from '@/constants/buses';
+
+const ALL_BUSES = 'All Buses';
+const ALL_DONORS = 'All Donors';
 
 // Status color config
 const STATUS_STYLES: Record<CalendarEvent['status'], { bg: string; text: string; border: string; label: string; icon: typeof CheckCircle }> = {
@@ -42,16 +46,27 @@ export function CalendarPage() {
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+    const [busFilter, setBusFilter] = useState<string>(ALL_BUSES);
+    const [donorFilter, setDonorFilter] = useState<string>(ALL_DONORS);
+    const [donors, setDonors] = useState<string[]>([]);
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth(); // 0-indexed
 
-    // Fetch events when month/year changes
+    // Donor filter options (from active schedules)
+    useEffect(() => {
+        fetchScheduleDonors().then(setDonors);
+    }, []);
+
+    // Fetch events when month/year or filters change
     useEffect(() => {
         const loadEvents = async () => {
             setLoading(true);
             try {
-                const data = await fetchCalendarEvents(year, month + 1); // API expects 1-indexed month
+                const data = await fetchCalendarEvents(year, month + 1, { // API expects 1-indexed month
+                    busNumber: busFilter === ALL_BUSES ? undefined : busFilter,
+                    donor: donorFilter === ALL_DONORS ? undefined : donorFilter,
+                });
                 setEvents(data);
             } catch (err) {
                 console.error('Failed to load calendar events:', err);
@@ -61,7 +76,7 @@ export function CalendarPage() {
             }
         };
         loadEvents();
-    }, [year, month]);
+    }, [year, month, busFilter, donorFilter]);
 
     // Handle marking a schedule as completed or missed
     const handleMarkStatus = async (eventId: string, newStatus: 'completed' | 'missed') => {
@@ -193,6 +208,7 @@ export function CalendarPage() {
                                 <div className="space-y-1">
                                     {dayEvents.slice(0, 2).map((event, idx) => {
                                         const statusStyle = STATUS_STYLES[event.status];
+                                        const busBadge = event.busNumber ? BUS_BADGE_STYLES[event.busNumber] : undefined;
                                         return (
                                             <div
                                                 key={idx}
@@ -200,6 +216,12 @@ export function CalendarPage() {
                                             >
                                                 {event.status === 'completed' && <CheckCircle size={10} />}
                                                 {event.status === 'missed' && <AlertTriangle size={10} />}
+                                                {/* Bus tag only matters when viewing all buses together */}
+                                                {busFilter === ALL_BUSES && event.busNumber && (
+                                                    <span className={`shrink-0 px-1 rounded text-[9px] font-semibold ${busBadge ? `${busBadge.bg} ${busBadge.text}` : 'bg-gray-100 text-gray-600'}`}>
+                                                        {event.busNumber.replace(/^BUS\s+/i, '')}
+                                                    </span>
+                                                )}
                                                 <span className="truncate">{event.location}</span>
                                             </div>
                                         );
@@ -230,6 +252,33 @@ export function CalendarPage() {
                         Schedule Calendar
                     </h1>
                     <p className="text-text-muted">View scheduled camps, trips, and follow-up sessions from uploaded schedules</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                        <Bus size={16} className="text-text-muted" />
+                        <select
+                            value={busFilter}
+                            onChange={e => setBusFilter(e.target.value)}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                            <option value={ALL_BUSES}>{ALL_BUSES}</option>
+                            {BUSES.map(bus => (
+                                <option key={bus} value={bus}>{bus}</option>
+                            ))}
+                        </select>
+                    </div>
+                    {donors.length > 0 && (
+                        <select
+                            value={donorFilter}
+                            onChange={e => setDonorFilter(e.target.value)}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                            <option value={ALL_DONORS}>{ALL_DONORS}</option>
+                            {donors.map(donor => (
+                                <option key={donor} value={donor}>{donor}</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
             </div>
 
@@ -432,16 +481,27 @@ export function CalendarPage() {
                                                 </div>
                                             </div>
 
+                                            {/* Bus assigned to this camp (from schedule or logged trip) */}
+                                            {event.busNumber && (
+                                                <div className="flex items-center gap-2">
+                                                    <Bus size={16} className="text-text-muted shrink-0" />
+                                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ${BUS_BADGE_STYLES[event.busNumber] ? `${BUS_BADGE_STYLES[event.busNumber].bg} ${BUS_BADGE_STYLES[event.busNumber].text}` : 'bg-gray-100 text-gray-600'}`}>
+                                                        {event.busNumber}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* Donor sponsoring this camp */}
+                                            {event.donor && (
+                                                <div className="flex items-center gap-2">
+                                                    <User size={16} className="text-text-muted shrink-0" />
+                                                    <span className="text-text-main text-xs">Donor: {event.donor}</span>
+                                                </div>
+                                            )}
+
                                             {/* Trip details (if completed) */}
                                             {event.tripId && (
                                                 <>
-                                                    {event.busNumber && (
-                                                        <div className="flex items-center gap-2">
-                                                            <Bus size={16} className="text-text-muted shrink-0" />
-                                                            <span className="text-text-main">{event.busNumber}</span>
-                                                        </div>
-                                                    )}
-
                                                     {event.driverName && (
                                                         <div className="flex items-center gap-2">
                                                             <User size={16} className="text-text-muted shrink-0" />
@@ -471,7 +531,7 @@ export function CalendarPage() {
                                             {(event.status === 'scheduled' || event.status === 'missed') && (
                                                 <div className="mt-3 pt-3 border-t border-gray-200/50 space-y-2">
                                                     <Link
-                                                        to={`/tracking/add-trip?date=${event.date}&location=${encodeURIComponent(event.location)}`}
+                                                        to={`/tracking/add-trip?date=${event.date}&location=${encodeURIComponent(event.location)}${event.busNumber ? `&bus=${encodeURIComponent(event.busNumber)}` : ''}`}
                                                     >
                                                         <Button variant="outline" className="w-full text-xs flex items-center justify-center gap-2">
                                                             Log Trip <ArrowRight size={14} />

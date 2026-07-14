@@ -465,12 +465,18 @@ export const importFileNumbers = async (file: File): Promise<ImportSummary> => {
 
         for (const row of dataRows) {
             try {
-                // Try updating in Supabase first (for synced records)
-                const { data, error } = await supabase
+                // Try updating in Supabase first (for synced records).
+                // Non-UUID systemIds (OFF-/import- tokens) must not go through
+                // id.eq — Postgres fails the whole query with a uuid cast error
+                // (22P02) and the server never gets updated.
+                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.systemId);
+                let updateQuery = supabase
                     .from('beneficiaries')
-                    .update({ file_number: row.fileNumber })
-                    .or(`id.eq.${row.systemId},offline_token.eq.${row.systemId}`)
-                    .select();
+                    .update({ file_number: row.fileNumber });
+                updateQuery = isUuid
+                    ? updateQuery.or(`id.eq.${row.systemId},offline_token.eq.${row.systemId}`)
+                    : updateQuery.eq('offline_token', row.systemId);
+                const { data, error } = await updateQuery.select();
 
                 if (error) {
                     console.error('Supabase update error:', error);

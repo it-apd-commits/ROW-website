@@ -632,7 +632,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                     min={0}
                                     max={10}
                                     value={data.vas_current ?? ''}
-                                    onChange={e => set('vas_current', parseInt(e.target.value) || 0)}
+                                    onChange={e => { const v = parseInt(e.target.value); set('vas_current', Number.isNaN(v) ? null : v); }}
                                     error={errors.vas_current}
                                     required
                                 />
@@ -642,7 +642,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                     min={0}
                                     max={10}
                                     value={data.vas_post ?? ''}
-                                    onChange={e => set('vas_post', parseInt(e.target.value) || 0)}
+                                    onChange={e => { const v = parseInt(e.target.value); set('vas_post', Number.isNaN(v) ? null : v); }}
                                     error={errors.vas_post}
                                     required
                                 />

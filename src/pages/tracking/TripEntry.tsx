@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Bus, Save, Calculator, MapPin, Clock, Fuel, Edit2, CheckCircle, Zap, AlertCircle, ChevronDown } from 'lucide-react';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/common/Input';
@@ -10,6 +10,7 @@ import { LOCATIONS, BASE_LOCATION, getLocationByName } from '@/data/locations'; 
 import { calculateDistance, calculateDuration, calculateFuelEfficiency } from '@/utils/googleMaps';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { BUS_OPTIONS, DEFAULT_BUS, normalizeBusName } from '@/constants/buses';
 
 const BUS_MILEAGE_KMPL = 4.5;
 
@@ -18,15 +19,16 @@ export function TripEntryPage() {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
     const isEditMode = !!id;
+    const [searchParams] = useSearchParams();
 
     const [formData, setFormData] = useState({
-        date: new Date().toISOString().split('T')[0],
-        busNumber: 'BUS ABB',
+        date: (!isEditMode && searchParams.get('date')) || new Date().toISOString().split('T')[0],
+        busNumber: (!isEditMode && normalizeBusName(searchParams.get('bus'))) || DEFAULT_BUS as string,
         driverName: '',
         assistantName: '',
         odometerStart: '',
         odometerEnd: '',
-        location: '',
+        location: (!isEditMode && searchParams.get('location')) || '',
         departureTime: '09:00',
         returnTime: '17:00',
         purpose: 'Screening',
@@ -107,12 +109,24 @@ export function TripEntryPage() {
                 const month = selectedDate.getMonth() + 1;
                 const year = selectedDate.getFullYear();
 
-                const { data, error } = await supabase
+                // Prefer the selected bus's locations; fall back to the whole month
+                // if this bus has no uploaded schedule.
+                let { data, error } = await supabase
                     .from('monthly_schedules')
                     .select('location_name')
                     .eq('is_active', true)
                     .eq('month', month)
-                    .eq('year', year);
+                    .eq('year', year)
+                    .eq('bus_number', formData.busNumber);
+
+                if (!error && (!data || data.length === 0)) {
+                    ({ data, error } = await supabase
+                        .from('monthly_schedules')
+                        .select('location_name')
+                        .eq('is_active', true)
+                        .eq('month', month)
+                        .eq('year', year));
+                }
 
                 if (error) throw error;
 
@@ -129,19 +143,23 @@ export function TripEntryPage() {
         };
 
         fetchLocations();
-    }, [formData.date]);
+    }, [formData.date, formData.busNumber]);
 
     // Fetch today's scheduled location for auto-suggest
     useEffect(() => {
         const fetchTodayScheduledLocation = async () => {
             try {
                 const today = new Date().toISOString().split('T')[0];
+                // Filter by the selected bus — with per-bus schedules, several camps
+                // can share a date, and .single() would error on multiple rows.
                 const { data, error } = await supabase
                     .from('monthly_schedules')
                     .select('location_name')
                     .eq('scheduled_date', today)
                     .eq('is_active', true)
-                    .single();
+                    .eq('bus_number', formData.busNumber)
+                    .limit(1)
+                    .maybeSingle();
 
                 if (error && error.code !== 'PGRST116') {
                     throw error;
@@ -159,7 +177,7 @@ export function TripEntryPage() {
         };
 
         fetchTodayScheduledLocation();
-    }, [isEditMode, formData.date, formData.location]);
+    }, [isEditMode, formData.date, formData.location, formData.busNumber]);
 
     // Wrap calculateDistanceFromLocation in useCallback
     const calculateDistanceFromLocation = useCallback(async () => {
@@ -203,10 +221,16 @@ export function TripEntryPage() {
     }, [formData.odometerStart, formData.odometerEnd]);
 
     // Auto-calculate fuel consumed from distance using bus mileage
+    // (only when fuel hasn't been entered/loaded, and never on the initial edit-mode load)
+    const skipInitialFuelAutoFill = useRef(isEditMode);
     useEffect(() => {
         if (calculatedData.distance > 0) {
+            if (skipInitialFuelAutoFill.current) {
+                skipInitialFuelAutoFill.current = false;
+                return;
+            }
             const estimated = (calculatedData.distance / BUS_MILEAGE_KMPL).toFixed(2);
-            setFormData(prev => ({ ...prev, fuelLiters: estimated }));
+            setFormData(prev => (prev.fuelLiters ? prev : { ...prev, fuelLiters: estimated }));
         }
     }, [calculatedData.distance]);
 
@@ -244,13 +268,15 @@ export function TripEntryPage() {
     // Mark the matching monthly_schedule as completed when a trip is saved
     const markScheduleCompleted = async (tripDate: string, tripLocation: string, tripId: string) => {
         try {
-            // Try exact match first, then case-insensitive partial match
+            // Try exact match first, then case-insensitive partial match.
+            // Match on the trip's bus too — two buses can run camps the same day.
             const { data: schedules } = await supabase
                 .from('monthly_schedules')
-                .select('id, location_name')
+                .select('id, location_name, bus_number')
                 .eq('scheduled_date', tripDate)
                 .eq('is_active', true)
-                .neq('status', 'completed');
+                .neq('status', 'completed')
+                .eq('bus_number', formData.busNumber);
 
             if (!schedules || schedules.length === 0) return;
 
@@ -390,14 +416,10 @@ export function TripEntryPage() {
                             />
                             <Select
                                 label="Bus Name"
-                                name="busName"
+                                name="busNumber"
                                 value={formData.busNumber}
                                 onChange={handleChange}
-                                options={[
-                                    { value: 'BUS ABB', label: 'BUS ABB' },
-                                    { value: 'BUS Juniper', label: 'BUS Juniper' },
-                                    { value: 'BUS Brigade', label: 'BUS Brigade' },
-                                ]}
+                                options={BUS_OPTIONS}
                             />
                             <Select
                                 label="Purpose"

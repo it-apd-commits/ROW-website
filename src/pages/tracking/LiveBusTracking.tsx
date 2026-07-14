@@ -23,6 +23,7 @@ import { exportTripsToCSV } from '@/utils/exportUtils';
 
 import { supabase } from '@/lib/supabase';
 import { BusMap } from '@/components/tracking/BusMap';
+import { BUS_BADGE_STYLES } from '@/constants/buses';
 
 interface MonthlySchedule {
     id: string;
@@ -32,6 +33,8 @@ interface MonthlySchedule {
     status?: string;
     is_active: boolean;
     trip_id?: string;
+    bus_number?: string;
+    donor?: string;
 }
 
 interface CompletedCamp {
@@ -609,7 +612,9 @@ export function LiveBusTrackingPage() {
                                 {upcomingCamps.length > 0 ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                         {upcomingCamps.map((camp) => {
-                                            const campDate = new Date(camp.scheduled_date);
+                                            // Parse YYYY-MM-DD as a LOCAL date (new Date(string) would parse it as UTC midnight)
+                                            const [cy, cm, cd] = camp.scheduled_date.split('-').map(Number);
+                                            const campDate = new Date(cy, cm - 1, cd);
                                             const today = new Date();
                                             today.setHours(0, 0, 0, 0);
                                             const diffDays = Math.ceil((campDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -652,8 +657,25 @@ export function LiveBusTrackingPage() {
                                                             {camp.address}
                                                         </p>
                                                     )}
+                                                    {(camp.bus_number || camp.donor) && (
+                                                        <div className="flex flex-wrap items-center gap-1.5 mt-2 ml-5">
+                                                            {camp.bus_number && (
+                                                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${BUS_BADGE_STYLES[camp.bus_number] ? `${BUS_BADGE_STYLES[camp.bus_number].bg} ${BUS_BADGE_STYLES[camp.bus_number].text}` : 'bg-gray-100 text-gray-600'}`}>
+                                                                    {camp.bus_number}
+                                                                </span>
+                                                            )}
+                                                            {camp.donor && (
+                                                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                                                                    {camp.donor}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                     {isToday && (
-                                                        <Link to="/tracking/add-trip" className="mt-3 block">
+                                                        <Link
+                                                            to={`/tracking/add-trip?date=${camp.scheduled_date}&location=${encodeURIComponent(camp.location_name)}${camp.bus_number ? `&bus=${encodeURIComponent(camp.bus_number)}` : ''}`}
+                                                            className="mt-3 block"
+                                                        >
                                                             <Button className="w-full text-xs py-1.5 flex items-center justify-center gap-1.5">
                                                                 <Plus size={14} /> Log Trip
                                                             </Button>

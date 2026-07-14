@@ -57,18 +57,21 @@ export function DashboardPage() {
     // Helper to set dates based on timeframe
     const handleTimeframeChange = (t: TimeFrame) => {
         setTimeframe(t);
+        // Format LOCAL date parts (toISOString shifts to UTC, which is the previous day in IST)
+        const formatLocalDate = (d: Date) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const today = new Date();
         let start = '';
-        const end = today.toISOString().split('T')[0];
+        const end = formatLocalDate(today);
 
         if (t === 'daily') {
             start = end;
         } else if (t === 'monthly') {
             const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-            start = firstDay.toISOString().split('T')[0];
+            start = formatLocalDate(firstDay);
         } else if (t === 'yearly') {
             const firstDayYear = new Date(today.getFullYear(), 0, 1);
-            start = firstDayYear.toISOString().split('T')[0];
+            start = formatLocalDate(firstDayYear);
         } else {
             // 'all'
             start = '';

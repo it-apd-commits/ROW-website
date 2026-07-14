@@ -6,12 +6,15 @@ import { Upload, FileUp, AlertCircle, CheckCircle, Download } from 'lucide-react
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { useAuth } from '@/hooks/useAuth';
+import { BUSES, normalizeBusName } from '@/constants/buses';
 
 
 
 interface ScheduleRow {
     location_name: string;
     scheduled_date: string;
+    bus_name: string;
+    donor?: string;
     address?: string;
 }
 
@@ -36,19 +39,35 @@ export function ScheduleUpload() {
                         await uploadData(results.data as Record<string, unknown>[]);
                     },
                     error: (error) => {
-                        throw new Error(`CSV Parse Error: ${error.message}`);
+                        // Thrown errors inside async Papa callbacks are not caught by the
+                        // surrounding try/catch — surface and reset state directly.
+                        setMessage({ type: 'error', text: `CSV Parse Error: ${error.message}` });
+                        setUploading(false);
                     }
                 });
             } else if (file.name.match(/\.(xlsx|xls)$/)) {
                 // Parse Excel
                 const reader = new FileReader();
                 reader.onload = async (e) => {
-                    const binaryStr = e.target?.result;
-                    const workbook = XLSX.read(binaryStr, { type: 'binary', cellDates: true });
-                    const sheetName = workbook.SheetNames[0];
-                    const sheet = workbook.Sheets[sheetName];
-                    const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'dd-mm-yyyy' }) as Record<string, unknown>[];
-                    await uploadData(jsonData);
+                    try {
+                        const binaryStr = e.target?.result;
+                        const workbook = XLSX.read(binaryStr, { type: 'binary', cellDates: true });
+                        const sheetName = workbook.SheetNames[0];
+                        const sheet = workbook.Sheets[sheetName];
+                        // raw: true + cellDates: true → date cells arrive as real Date
+                        // objects instead of locale-formatted text (which xlsx renders
+                        // as ambiguous US-style "7/10/26" regardless of the cell format).
+                        const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: true }) as Record<string, unknown>[];
+                        await uploadData(jsonData);
+                    } catch (error) {
+                        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+                        setMessage({ type: 'error', text: errorMessage });
+                        setUploading(false);
+                    }
+                };
+                reader.onerror = () => {
+                    setMessage({ type: 'error', text: 'Failed to read the file.' });
+                    setUploading(false);
                 };
                 reader.readAsBinaryString(file);
             } else {
@@ -76,10 +95,12 @@ export function ScheduleUpload() {
                 return newRow as unknown as ScheduleRow;
             });
 
-            // Check for required columns
+            // Check for required columns ("Bus Name" or "Bus Number" both accepted)
+            const firstRow = normalizedData[0] as unknown as Record<string, unknown>;
+            const hasBusCol = 'bus_name' in firstRow || 'bus_number' in firstRow || 'bus' in firstRow;
             const requiredCols = ['location_name', 'scheduled_date'];
-            const firstRow = normalizedData[0];
             const missingCols = requiredCols.filter(col => !Object.keys(firstRow).includes(col));
+            if (!hasBusCol) missingCols.push('bus_name');
 
             if (missingCols.length > 0) {
                 throw new Error(`Missing columns: ${missingCols.join(', ')}`);
@@ -87,6 +108,15 @@ export function ScheduleUpload() {
 
             // Helper function to parse various date formats
             const parseDate = (dateStr: string | number | Date): Date => {
+                // Real Excel date cells (read with cellDates: true) arrive as Date
+                // objects. SheetJS returns them slightly BEFORE midnight of the
+                // intended day (e.g. 23:59:59 of the previous day), so shift by
+                // 12h before taking the day — rounds to the nearest day in any timezone.
+                if (dateStr instanceof Date) {
+                    const shifted = new Date(dateStr.getTime() + 12 * 60 * 60 * 1000);
+                    return new Date(shifted.getFullYear(), shifted.getMonth(), shifted.getDate());
+                }
+
                 // Handle Excel serial numbers
                 if (typeof dateStr === 'number') {
                     // Excel date serial number: serial 1 = Jan 1, 1900
@@ -97,14 +127,14 @@ export function ScheduleUpload() {
 
                 const str = String(dateStr).trim();
 
-                // DD-MM-YYYY format (day first, as used in Indian date format)
-                if (str.match(/^\d{2}-\d{2}-\d{4}$/)) {
+                // D-M-YYYY / DD-MM-YYYY format (day first, as used in Indian date format)
+                if (str.match(/^\d{1,2}-\d{1,2}-\d{4}$/)) {
                     const [day, month, year] = str.split('-').map(Number);
                     return new Date(year, month - 1, day);
                 }
 
-                // Try DD/MM/YYYY format
-                if (str.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+                // Try D/M/YYYY / DD/MM/YYYY format
+                if (str.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
                     const [day, month, year] = str.split('/').map(Number);
                     return new Date(year, month - 1, day);
                 }
@@ -115,35 +145,22 @@ export function ScheduleUpload() {
                     return new Date(year, month - 1, day);
                 }
 
-                // Fallback: try native Date parser
-                const fallbackDate = new Date(str);
-                if (!isNaN(fallbackDate.getTime())) {
-                    return fallbackDate;
+                // D-M-YY / D/M/YY with a 2-digit year (day first) → 20YY
+                if (str.match(/^\d{1,2}[-/]\d{1,2}[-/]\d{2}$/)) {
+                    const [day, month, year] = str.split(/[-/]/).map(Number);
+                    return new Date(2000 + year, month - 1, day);
                 }
 
-                throw new Error(`Unable to parse date: ${str}`);
+                // No native Date fallback — new Date(str) parses month-first and
+                // would silently corrupt day-first dates. Reject instead.
+                throw new Error(`Unable to parse date: ${str}. Use DD-MM-YYYY, DD/MM/YYYY or YYYY-MM-DD.`);
             };
 
 
-            // 2. Extract Month/Year from the first valid date found
-            let firstDate: Date;
-            try {
-                firstDate = parseDate(normalizedData[0].scheduled_date);
-            } catch (err) {
-                const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-                throw new Error(`Invalid date format in first row: ${errorMessage}`);
-            }
-
-            if (isNaN(firstDate.getTime())) {
-                throw new Error(`Invalid date value in first row: ${normalizedData[0].scheduled_date}`);
-            }
-
-            const month = firstDate.getMonth() + 1; // 1-12
-            const year = firstDate.getFullYear();
-
             const uniqueLocations = new Set(normalizedData.map(row => row.location_name));
 
-            // 3. Transform Data for DB
+            // 2. Transform Data for DB — month/year derived per row from its own date,
+            // bus validated against the known fleet so typos don't create ghost buses
             const dbRows = normalizedData.map((row, index) => {
                 let parsedDate: Date;
                 try {
@@ -157,31 +174,51 @@ export function ScheduleUpload() {
                     throw new Error(`Invalid date value in row ${index + 1}: ${row.scheduled_date}`);
                 }
 
+                const rawRecord = row as unknown as Record<string, unknown>;
+                const rawBus = rawRecord.bus_name ?? rawRecord.bus_number ?? rawRecord.bus;
+                const busNumber = normalizeBusName(rawBus);
+                if (!busNumber) {
+                    throw new Error(`Invalid bus name in row ${index + 1}: "${rawBus ?? ''}". Valid buses: ${BUSES.join(', ')}.`);
+                }
+
+                const donor = rawRecord.donor != null ? String(rawRecord.donor).trim() : '';
+
                 // Format date as YYYY-MM-DD using local time (not UTC) to avoid timezone shift
                 const yyyy = parsedDate.getFullYear();
                 const mm = String(parsedDate.getMonth() + 1).padStart(2, '0');
                 const dd = String(parsedDate.getDate()).padStart(2, '0');
 
                 return {
-                    month,
-                    year,
+                    month: parsedDate.getMonth() + 1, // 1-12
+                    year: parsedDate.getFullYear(),
                     location_name: row.location_name,
                     scheduled_date: `${yyyy}-${mm}-${dd}`,
+                    bus_number: busNumber,
+                    donor: donor || null,
                     address: row.address || null,
                     is_active: true
                 };
             });
 
+            // Every distinct month/year/bus present in the file
+            const monthYearBusKeys = Array.from(new Set(dbRows.map(r => `${r.month}|${r.year}|${r.bus_number}`)));
+
             // 5. Database Transaction
 
-            // A. Archive previous schedules for this month (if re-uploading)
-            const { error: updateError } = await supabase
-                .from('monthly_schedules')
-                .update({ is_active: false })
-                .eq('month', month)
-                .eq('year', year);
+            // A. Archive previous schedules per month + bus in the file (if re-uploading).
+            // Scoped to the bus so uploading one bus's schedule never deactivates
+            // another bus's schedule for the same month.
+            for (const key of monthYearBusKeys) {
+                const [m, y, bus] = key.split('|');
+                const { error: updateError } = await supabase
+                    .from('monthly_schedules')
+                    .update({ is_active: false })
+                    .eq('month', Number(m))
+                    .eq('year', Number(y))
+                    .eq('bus_number', bus);
 
-            if (updateError) throw updateError;
+                if (updateError) throw updateError;
+            }
 
             // B. Insert new records
             const { error: insertError } = await supabase
@@ -195,14 +232,17 @@ export function ScheduleUpload() {
                 user_id: user?.id,
                 action: 'SCHEDULE_UPLOAD',
                 details: {
-                    month,
-                    year,
+                    month_bus_batches: monthYearBusKeys,
                     location_count: dbRows.length,
                     unique_locations: uniqueLocations.size
                 }
             });
 
-            setMessage({ type: 'success', text: `Successfully uploaded ${dbRows.length} schedule records for ${new Date(year, month - 1).toLocaleString('default', { month: 'long' })} ${year}.` });
+            const batchLabels = monthYearBusKeys.map(key => {
+                const [m, y, bus] = key.split('|');
+                return `${new Date(Number(y), Number(m) - 1).toLocaleString('default', { month: 'long' })} ${y} (${bus})`;
+            }).join(', ');
+            setMessage({ type: 'success', text: `Successfully uploaded ${dbRows.length} schedule records for ${batchLabels}.` });
 
         } catch (error) {
             console.error(error);
@@ -220,21 +260,29 @@ export function ScheduleUpload() {
             {
                 'Scheduled Date': '2026-03-10',
                 'Location Name': 'Chanrayapatna',
+                'Bus Name': 'BUS ABB',
+                'Donor': 'Donor A',
                 'Address': 'Chanrayapatna, Hassan District, Karnataka'
             },
             {
                 'Scheduled Date': '2026-03-15',
                 'Location Name': 'Hesarghatta',
+                'Bus Name': 'BUS ABB',
+                'Donor': 'Donor A',
                 'Address': 'Hesarghatta, Bangalore Rural, Karnataka'
             },
             {
                 'Scheduled Date': '2026-03-20',
                 'Location Name': 'Nalur',
+                'Bus Name': 'BUS Brigade',
+                'Donor': 'Donor B',
                 'Address': 'Nalur, Bangalore, Karnataka'
             },
             {
                 'Scheduled Date': '2026-03-25',
                 'Location Name': 'Sonnenahalli',
+                'Bus Name': 'BUS Juniper',
+                'Donor': '',
                 'Address': 'Sonnenahalli, Bangalore, Karnataka'
             }
         ];
@@ -248,6 +296,8 @@ export function ScheduleUpload() {
         ws['!cols'] = [
             { wch: 15 }, // Scheduled Date
             { wch: 20 }, // Location Name
+            { wch: 15 }, // Bus Name
+            { wch: 20 }, // Donor
             { wch: 40 }  // Address
         ];
 
@@ -265,9 +315,11 @@ export function ScheduleUpload() {
                 <h4 className="text-sm font-bold text-blue-900 mb-2">Instructions:</h4>
                 <ul className="list-disc list-inside text-xs text-blue-800 space-y-1">
                     <li>Upload CSV or Excel (.xlsx) file.</li>
-                    <li>Required Columns: <strong>Scheduled Date, Location Name, Address</strong></li>
+                    <li>Required Columns: <strong>Scheduled Date, Location Name, Bus Name</strong> — Optional: <strong>Donor, Address</strong></li>
+                    <li>Valid bus names: <strong>{BUSES.join(', ')}</strong>. One file can mix multiple buses.</li>
                     <li>Format: Locations and dates from the Excel will reflect in the Calendar and Upcoming Camps.</li>
                     <li>System will automatically detect the Month/Year from the dates.</li>
+                    <li>Re-uploading replaces the schedule only for the bus(es) and month(s) present in the file — other buses' schedules are untouched.</li>
                 </ul>
             </div>
 

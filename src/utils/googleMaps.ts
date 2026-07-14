@@ -89,7 +89,9 @@ export function calculateDuration(departureTime: string, returnTime: string): nu
         const depMinutes = depHour * 60 + depMin;
         const retMinutes = retHour * 60 + retMin;
 
-        const diffMinutes = retMinutes - depMinutes;
+        let diffMinutes = retMinutes - depMinutes;
+        // Return before departure means the trip crossed midnight — add 24 hours
+        if (diffMinutes < 0) diffMinutes += 24 * 60;
         return Number((diffMinutes / 60).toFixed(2));
     } catch {
         return 0;

@@ -9,27 +9,35 @@ export interface CalendarEvent {
     eventType: 'screening' | 'follow-up' | 'maintenance' | 'emergency' | 'other';
     // From linked trip (if any)
     tripId?: string;
-    busNumber?: string;
+    busNumber?: string; // bus assigned in the schedule (falls back to the linked trip's bus)
     driverName?: string;
     departureTime?: string;
     returnTime?: string;
     beneficiariesServed?: number;
     // Schedule metadata
+    donor?: string;
     isActive: boolean;
+}
+
+export interface CalendarFilters {
+    busNumber?: string; // exact bus, omit for all buses
+    donor?: string;     // exact donor, omit for all donors
 }
 
 /**
  * Fetch all calendar events for a given month/year from monthly_schedules + linked trips
  */
-export async function fetchCalendarEvents(year: number, month: number): Promise<CalendarEvent[]> {
+export async function fetchCalendarEvents(year: number, month: number, filters?: CalendarFilters): Promise<CalendarEvent[]> {
     // 1. Fetch schedules for the month
-    const { data: schedules, error: schedError } = await supabase
+    let query = supabase
         .from('monthly_schedules')
         .select('*')
         .eq('month', month)
         .eq('year', year)
-        .eq('is_active', true)
-        .order('scheduled_date', { ascending: true });
+        .eq('is_active', true);
+    if (filters?.busNumber) query = query.eq('bus_number', filters.busNumber);
+    if (filters?.donor) query = query.eq('donor', filters.donor);
+    const { data: schedules, error: schedError } = await query.order('scheduled_date', { ascending: true });
 
     if (schedError) {
         console.error('Error fetching schedules:', schedError);
@@ -54,12 +62,14 @@ export async function fetchCalendarEvents(year: number, month: number): Promise<
     }
 
     // 3. Build calendar events - match schedules with trips by date + location
+    // (+ bus, when the schedule has one — two buses can visit the same place/day)
     const events: CalendarEvent[] = schedules.map((schedule) => {
         // Try to find a matching trip for this schedule
         const matchingTrip = trips?.find(
             (trip) =>
                 trip.date === schedule.scheduled_date &&
-                trip.location?.toLowerCase() === schedule.location_name?.toLowerCase()
+                trip.location?.toLowerCase() === schedule.location_name?.toLowerCase() &&
+                (!schedule.bus_number || trip.bus_number === schedule.bus_number)
         );
 
         // Determine status
@@ -95,7 +105,8 @@ export async function fetchCalendarEvents(year: number, month: number): Promise<
             status,
             eventType,
             tripId: matchingTrip?.id || schedule.trip_id || undefined,
-            busNumber: matchingTrip?.bus_number || undefined,
+            busNumber: schedule.bus_number || matchingTrip?.bus_number || undefined,
+            donor: schedule.donor || undefined,
             driverName: matchingTrip?.driver_name || undefined,
             departureTime: matchingTrip?.departure_time || undefined,
             returnTime: matchingTrip?.return_time || undefined,
@@ -136,6 +147,8 @@ export async function fetchUpcomingEvents(daysAhead: number = 7): Promise<Calend
         address: schedule.address || undefined,
         status: 'scheduled' as const,
         eventType: 'screening' as const,
+        busNumber: schedule.bus_number || undefined,
+        donor: schedule.donor || undefined,
         isActive: true,
     }));
 }
@@ -169,8 +182,30 @@ export async function fetchMissedCamps(): Promise<CalendarEvent[]> {
         address: schedule.address || undefined,
         status: 'missed' as const,
         eventType: 'screening' as const,
+        busNumber: schedule.bus_number || undefined,
+        donor: schedule.donor || undefined,
         isActive: true,
     }));
+}
+
+/**
+ * Distinct donor names across active schedules — populates the calendar's donor filter.
+ */
+export async function fetchScheduleDonors(): Promise<string[]> {
+    const { data, error } = await supabase
+        .from('monthly_schedules')
+        .select('donor')
+        .eq('is_active', true)
+        .not('donor', 'is', null);
+
+    if (error) {
+        console.error('Error fetching schedule donors:', error);
+        return [];
+    }
+
+    const donors = new Set<string>();
+    (data || []).forEach(row => { if (row.donor) donors.add(row.donor); });
+    return Array.from(donors).sort((a, b) => a.localeCompare(b));
 }
 
 /**

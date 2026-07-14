@@ -8,11 +8,14 @@ function App() {
     const timer = setTimeout(async () => {
       try {
         const { db } = await import('./lib/db');
-        const [bCount, sCount] = await Promise.all([
+        const [bCount, sCount, iCount, cCount, fCount] = await Promise.all([
           db.beneficiaries.where('sync_status').anyOf(['pending', 'failed']).count(),
           db.service_entries.where('sync_status').anyOf(['pending', 'failed']).count(),
+          db.offline_initial_assessments.where('sync_status').anyOf(['pending', 'failed']).count(),
+          db.offline_clinical_assessments.where('sync_status').anyOf(['pending', 'failed']).count(),
+          db.offline_follow_up_assessments.where('sync_status').anyOf(['pending', 'failed']).count(),
         ]);
-        if (bCount + sCount > 0) {
+        if (bCount + sCount + iCount + cCount + fCount > 0) {
           const { SyncService } = await import('./lib/syncService');
           SyncService.syncPendingRecords().catch(console.error);
         }
