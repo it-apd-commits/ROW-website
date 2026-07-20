@@ -14,6 +14,14 @@ export const SyncService = {
         if (syncInFlight) return syncInFlight;
         syncInFlight = (async () => {
             try {
+                // RLS requires an authenticated session. Without one, SELECTs return
+                // empty (not an error) and would be misread as "record not on server",
+                // while INSERTs fail — so skip the whole run until the session is back.
+                const { data: sessionData } = await supabase.auth.getSession();
+                if (!sessionData.session) {
+                    console.warn('[SyncService] No authenticated session — skipping sync');
+                    return;
+                }
                 // Beneficiaries must sync first so their server-assigned file_number
                 // can be propagated to any pending service entries before those sync.
                 await SyncService.syncPendingBeneficiaries();
@@ -53,7 +61,29 @@ export const SyncService = {
                 if (error) {
                     if (error.code === '23505') {
                         console.warn(`[SyncService] Beneficiary ${record.offline_token} already exists on server.`);
-                        await db.beneficiaries.update(record.id!, { sync_status: 'synced' });
+                        // Pull the existing server row so file_number/token_no still get
+                        // propagated locally and pending service entries get re-linked —
+                        // otherwise those entries defer forever on the offline token.
+                        const { data: existing } = await supabase
+                            .from('beneficiaries')
+                            .select('token_no, file_number')
+                            .eq('offline_token', record.offline_token)
+                            .maybeSingle();
+                        await db.beneficiaries.update(record.id!, {
+                            sync_status: 'synced',
+                            ...(existing?.token_no != null ? { token_no: existing.token_no } : {}),
+                            ...(existing?.file_number ? { file_number: existing.file_number } : {}),
+                        });
+                        if (existing?.file_number && record.offline_token) {
+                            await db.service_entries
+                                .where('file_number')
+                                .equals(record.offline_token)
+                                .modify({ file_number: existing.file_number });
+                            await supabase
+                                .from('service_entries')
+                                .update({ file_number: existing.file_number })
+                                .eq('file_number', record.offline_token);
+                        }
                     } else {
                         throw error;
                     }
@@ -289,7 +319,7 @@ export const SyncService = {
         return { downloaded, total };
     },
 
-    async syncPendingServiceEntries() {
+    async syncPendingServiceEntries(allowRerun = true) {
         const recordsToSync = await db.service_entries
             .where('sync_status')
             .anyOf(['pending', 'failed'])
@@ -298,6 +328,10 @@ export const SyncService = {
         if (recordsToSync.length === 0) return;
 
         console.log(`[SyncService] Starting service entry sync for ${recordsToSync.length} records...`);
+
+        // Set when an entry's beneficiary is marked synced locally but missing on
+        // the server — the beneficiary is re-queued and one retry pass runs below.
+        let needsBeneficiaryRerun = false;
 
         for (const record of recordsToSync) {
             try {
@@ -310,17 +344,52 @@ export const SyncService = {
                 // real file_number or UUID before pushing to Supabase.
                 const storedFn = record.file_number ?? '';
                 if (storedFn.startsWith('OFF-') || storedFn.startsWith('import-')) {
-                    const { data: bData } = await supabase
+                    const { data: bData, error: lookupError } = await supabase
                         .from('beneficiaries')
                         .select('id, file_number')
                         .eq('offline_token', storedFn)
                         .maybeSingle();
 
+                    // A lookup error is NOT "beneficiary missing" — surface it as a
+                    // failure so it's visible in the UI and retried next cycle.
+                    if (lookupError) {
+                        throw new Error(`Beneficiary lookup failed for ${storedFn}: ${lookupError.message}`);
+                    }
+
                     if (!bData) {
-                        // Beneficiary hasn't reached the server yet — defer this entry
-                        // so it syncs after the beneficiary does on the next cycle.
-                        console.log(`[SyncService] Deferring service entry ${record.offline_id} — beneficiary not on server yet`);
-                        continue;
+                        // Beneficiary isn't on the server. If it's still queued locally,
+                        // defer — it will sync first on the next cycle. Record the reason
+                        // so the UI can explain why the entry is still pending.
+                        const localBen = await db.beneficiaries
+                            .where('offline_token')
+                            .equals(storedFn)
+                            .first();
+                        if (localBen && localBen.sync_status !== 'synced') {
+                            const reason = localBen.sync_status === 'failed'
+                                ? `Waiting on beneficiary "${localBen.name}" whose sync failed: ${localBen.error_message ?? 'unknown error'}`
+                                : `Waiting for beneficiary "${localBen.name}" to sync first`;
+                            console.log(`[SyncService] Deferring service entry ${record.offline_id} — ${reason}`);
+                            await db.service_entries.update(record.id!, { error_message: reason });
+                            continue;
+                        }
+                        if (localBen) {
+                            // Dexie says 'synced' but the server has no row with this token
+                            // (row deleted, or an old sync marked it synced without uploading).
+                            // Re-queue the beneficiary; the retry pass below re-uploads it
+                            // and then this entry resolves. If the row actually exists, the
+                            // re-upload hits the 23505 handler which re-links file numbers.
+                            console.warn(`[SyncService] Beneficiary "${localBen.name}" (${storedFn}) marked synced locally but missing on server — re-queuing for upload`);
+                            await db.beneficiaries.update(localBen.id!, { sync_status: 'pending', error_message: undefined });
+                            await db.service_entries.update(record.id!, {
+                                error_message: `Beneficiary "${localBen.name}" was missing on server — re-uploading and retrying`
+                            });
+                            needsBeneficiaryRerun = true;
+                            continue;
+                        }
+                        // No local beneficiary can ever push this token to the server —
+                        // the entry would stay pending forever. Mark it failed so the
+                        // user sees the problem instead of a permanent "Pending Sync".
+                        throw new Error(`Beneficiary with token ${storedFn} not found on server or on this device`);
                     }
 
                     const resolvedFn = bData.file_number ?? bData.id;
@@ -337,12 +406,12 @@ export const SyncService = {
                 if (error) {
                     if (error.code === '23505') {
                         console.warn(`[SyncService] Service entry ${record.offline_id} already exists on server.`);
-                        await db.service_entries.update(record.id!, { sync_status: 'synced' });
+                        await db.service_entries.update(record.id!, { sync_status: 'synced', error_message: undefined });
                     } else {
                         throw error;
                     }
                 } else {
-                    await db.service_entries.update(record.id!, { sync_status: 'synced' });
+                    await db.service_entries.update(record.id!, { sync_status: 'synced', error_message: undefined });
                     console.log(`[SyncService] Synced service entry ${record.offline_id}`);
                 }
             } catch (err) {
@@ -353,6 +422,14 @@ export const SyncService = {
                     error_message: message
                 });
             }
+        }
+
+        // Self-heal pass: upload the re-queued beneficiaries, then retry the
+        // deferred entries once (allowRerun=false bounds this to a single retry).
+        if (needsBeneficiaryRerun && allowRerun) {
+            console.log('[SyncService] Re-uploading missing beneficiaries and retrying their service entries...');
+            await SyncService.syncPendingBeneficiaries();
+            await SyncService.syncPendingServiceEntries(false);
         }
     }
 };

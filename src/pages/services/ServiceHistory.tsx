@@ -507,14 +507,14 @@ export function ServiceHistoryPage() {
                                                 {service.isOffline ? (
                                                     <div className="flex flex-col gap-1">
                                                         <span
-                                                            title={service.sync_status === 'failed' && service.error_message ? service.error_message : undefined}
+                                                            title={service.error_message || undefined}
                                                             className={`inline-flex items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-[10px] font-bold tracking-wider cursor-default ${service.sync_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}
                                                         >
                                                             <CloudOff size={10} />
                                                             {service.sync_status === 'failed' ? 'Sync Failed' : 'Pending Sync'}
                                                         </span>
-                                                        {service.sync_status === 'failed' && service.error_message && (
-                                                            <span className="text-[9px] text-red-500 leading-tight max-w-[160px] break-words">
+                                                        {service.error_message && (
+                                                            <span className={`text-[9px] leading-tight max-w-[160px] break-words ${service.sync_status === 'failed' ? 'text-red-500' : 'text-amber-600'}`}>
                                                                 {service.error_message}
                                                             </span>
                                                         )}

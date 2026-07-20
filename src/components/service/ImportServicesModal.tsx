@@ -54,7 +54,6 @@ export function ImportServicesModal({ isOpen, onClose, onSuccess }: ImportServic
                 onSuccess();
                 auditService.log('SERVICE_BULK_IMPORTED', {
                     imported: result.imported,
-                    skipped: result.skipped,
                     errors: result.errors,
                     file_name: file.name,
                 });
@@ -177,7 +176,7 @@ export function ImportServicesModal({ isOpen, onClose, onSuccess }: ImportServic
                                 </p>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-3 gap-4">
                                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                                     <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Total Rows</p>
                                     <p className="text-2xl font-bold text-gray-900">{summary.total}</p>
@@ -185,10 +184,6 @@ export function ImportServicesModal({ isOpen, onClose, onSuccess }: ImportServic
                                 <div className="bg-green-50 p-4 rounded-xl border border-green-100">
                                     <p className="text-xs font-medium text-green-700 uppercase tracking-wider">Imported</p>
                                     <p className="text-2xl font-bold text-green-900">{summary.imported}</p>
-                                </div>
-                                <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
-                                    <p className="text-xs font-medium text-yellow-700 uppercase tracking-wider">Skipped (Duplicates)</p>
-                                    <p className="text-2xl font-bold text-yellow-900">{summary.skipped}</p>
                                 </div>
                                 <div className="bg-red-50 p-4 rounded-xl border border-red-100">
                                     <p className="text-xs font-medium text-red-700 uppercase tracking-wider">Errors</p>

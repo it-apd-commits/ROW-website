@@ -25,7 +25,19 @@ function App() {
         SyncService.syncPendingRecords().catch(console.error);
       }
     }, 2000);
-    return () => clearTimeout(timer);
+
+    // Global reconnect handler — pages with useOnlineStatus also trigger this,
+    // but this guarantees sync fires on reconnect no matter which page is open.
+    const handleOnline = async () => {
+      const { SyncService } = await import('./lib/syncService');
+      SyncService.syncPendingRecords().catch(console.error);
+    };
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('online', handleOnline);
+    };
   }, []);
 
   return (

@@ -157,14 +157,13 @@ export interface ServiceErrorRow {
 export interface ServiceImportSummary {
     total: number;
     imported: number;
-    skipped: number;
     errors: number;
     errorRows: ServiceErrorRow[];
 }
 
 export const importServices = async (file: File): Promise<ServiceImportSummary> => {
     const summary: ServiceImportSummary = {
-        total: 0, imported: 0, skipped: 0, errors: 0, errorRows: [],
+        total: 0, imported: 0, errors: 0, errorRows: [],
     };
 
     const ExcelJS = (await import('exceljs')).default;
@@ -220,7 +219,6 @@ export const importServices = async (file: File): Promise<ServiceImportSummary> 
     const VALID_FOLLOWUPS = new Set(['Initial Visit', 'Follow Up 1', 'Follow Up 2', 'Follow Up 3', 'Follow Up 4']);
 
     const rawRows: ServiceErrorRow[] = [];
-    const seenKeys = new Set<string>();
 
     worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return;
@@ -254,12 +252,6 @@ export const importServices = async (file: File): Promise<ServiceImportSummary> 
             errorMessage:          '',
         };
 
-        const dedupeKey = `${raw.file_number}|${raw.service_code}|${raw.start_date}`;
-        if (seenKeys.has(dedupeKey)) {
-            summary.skipped++;
-            return;
-        }
-        seenKeys.add(dedupeKey);
         rawRows.push(raw);
     });
 
@@ -348,17 +340,6 @@ export const importServices = async (file: File): Promise<ServiceImportSummary> 
                 });
                 continue;
             }
-        }
-
-        // Prevent re-import duplicates: skip if an entry for the same beneficiary,
-        // service, and start date already exists in Dexie.
-        const existingEntry = await db.service_entries
-            .where('file_number').equals(raw.file_number)
-            .filter(e => e.service_code === svcUpper && e.start_date === startDate!)
-            .first();
-        if (existingEntry) {
-            summary.skipped++;
-            continue;
         }
 
         try {
