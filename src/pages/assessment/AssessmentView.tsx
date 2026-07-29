@@ -195,8 +195,19 @@ export function AssessmentViewPage() {
                         {condition === 'Disability' && (
                             <>
                                 <Field label="Disability Type" value={clinical.disability_type} />
-                                <Field label="FIM Locomotion" value={clinical.fim_locomotion} />
-                                <Field label="FIM Mobility" value={clinical.fim_mobility} />
+                                <Field label="Walking / Wheelchair" value={clinical.fim_walking_wheelchair} />
+                                <Field label="Stairs" value={clinical.fim_stairs} />
+                                <Field label="Community Access" value={clinical.fim_community_access} />
+                                <Field label="Bed / Chair / Wheelchair Transfer" value={clinical.fim_bed_chair_transfer} />
+                                <Field label="Toilet Transfer" value={clinical.fim_toilet_transfer} />
+                                <Field label="Tub / Shower Transfer" value={clinical.fim_tub_shower_transfer} />
+                                {/* Pre-migration records may only have the old flat scores */}
+                                {(clinical.fim_locomotion || clinical.fim_mobility) && (
+                                    <>
+                                        <Field label="FIM Locomotion (legacy)" value={clinical.fim_locomotion} />
+                                        <Field label="FIM Mobility (legacy)" value={clinical.fim_mobility} />
+                                    </>
+                                )}
                             </>
                         )}
 
@@ -263,8 +274,12 @@ export function AssessmentViewPage() {
                                     )}
                                     {condition === 'Disability' && (
                                         <>
-                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">FIM Locomotion</th>
-                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">FIM Mobility</th>
+                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Walk/W'chair</th>
+                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Stairs</th>
+                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Community</th>
+                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Bed/Chair Xfer</th>
+                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Toilet Xfer</th>
+                                            <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Tub/Shower Xfer</th>
                                         </>
                                     )}
                                     {condition === 'Amputation' && (
@@ -304,8 +319,12 @@ export function AssessmentViewPage() {
                                         )}
                                         {condition === 'Disability' && (
                                             <>
-                                                <td className="py-3 px-3">{clinical.fim_locomotion || '—'}</td>
-                                                <td className="py-3 px-3">{clinical.fim_mobility || '—'}</td>
+                                                <td className="py-3 px-3">{clinical.fim_walking_wheelchair || '—'}</td>
+                                                <td className="py-3 px-3">{clinical.fim_stairs || '—'}</td>
+                                                <td className="py-3 px-3">{clinical.fim_community_access || '—'}</td>
+                                                <td className="py-3 px-3">{clinical.fim_bed_chair_transfer || '—'}</td>
+                                                <td className="py-3 px-3">{clinical.fim_toilet_transfer || '—'}</td>
+                                                <td className="py-3 px-3">{clinical.fim_tub_shower_transfer || '—'}</td>
                                             </>
                                         )}
                                         {condition === 'Amputation' && (
@@ -345,8 +364,12 @@ export function AssessmentViewPage() {
                                         )}
                                         {condition === 'Disability' && (
                                             <>
-                                                <td className="py-3 px-3">{row.fim_locomotion || '—'}</td>
-                                                <td className="py-3 px-3">{row.fim_mobility || '—'}</td>
+                                                <td className="py-3 px-3">{row.fim_walking_wheelchair || '—'}</td>
+                                                <td className="py-3 px-3">{row.fim_stairs || '—'}</td>
+                                                <td className="py-3 px-3">{row.fim_community_access || '—'}</td>
+                                                <td className="py-3 px-3">{row.fim_bed_chair_transfer || '—'}</td>
+                                                <td className="py-3 px-3">{row.fim_toilet_transfer || '—'}</td>
+                                                <td className="py-3 px-3">{row.fim_tub_shower_transfer || '—'}</td>
                                             </>
                                         )}
                                         {condition === 'Amputation' && (
@@ -388,8 +411,12 @@ export function AssessmentViewPage() {
                 }
                 if (condition === 'Disability') {
                     outcomes.push(
-                        { label: 'FIM Locomotion', baseline: clinical.fim_locomotion, current: latest.fim_locomotion, improved: null },
-                        { label: 'FIM Mobility', baseline: clinical.fim_mobility, current: latest.fim_mobility, improved: null },
+                        { label: 'Walking / Wheelchair', baseline: clinical.fim_walking_wheelchair, current: latest.fim_walking_wheelchair, improved: null },
+                        { label: 'Stairs', baseline: clinical.fim_stairs, current: latest.fim_stairs, improved: null },
+                        { label: 'Community Access', baseline: clinical.fim_community_access, current: latest.fim_community_access, improved: null },
+                        { label: 'Bed / Chair / Wheelchair Transfer', baseline: clinical.fim_bed_chair_transfer, current: latest.fim_bed_chair_transfer, improved: null },
+                        { label: 'Toilet Transfer', baseline: clinical.fim_toilet_transfer, current: latest.fim_toilet_transfer, improved: null },
+                        { label: 'Tub / Shower Transfer', baseline: clinical.fim_tub_shower_transfer, current: latest.fim_tub_shower_transfer, improved: null },
                     );
                 }
                 if (condition === 'Amputation') {

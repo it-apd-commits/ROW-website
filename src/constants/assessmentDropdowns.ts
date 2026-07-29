@@ -64,6 +64,13 @@ export const DROPDOWNS = {
         '6 Modified Independence', '7 Complete Independence',
     ],
 
+    // 7-point FIM scale shared by every Locomotion/Mobility sub-item below.
+    FIM_SCALE: [
+        '1 Total Assistance', '2 Maximal Assistance', '3 Moderate Assistance',
+        '4 Minimal Assistance', '5 Supervision / Setup',
+        '6 Modified Independence', '7 Complete Independence',
+    ],
+
     SurgeryType: [
         'Joint Replacement', 'Fracture Fixation',
         'Ligament Repair', 'Spinal Surgery', 'Other',
@@ -141,3 +148,76 @@ export const DROPDOWNS = {
 export function toOptions(arr: string[]) {
     return arr.map(v => ({ value: v, label: v }));
 }
+
+// ── FIM Locomotion / Mobility breakdown ──
+// Replaces the old single "FIM Locomotion" / "FIM Mobility" dropdowns with the
+// real FIM sub-items, each scored on FIM_SCALE but with its own description
+// per score (from the clinical FIM reference table).
+export const FIM_LOCOMOTION_ITEMS = [
+    { key: 'fim_walking_wheelchair', label: 'Walking / Wheelchair' },
+    { key: 'fim_stairs', label: 'Stairs' },
+    { key: 'fim_community_access', label: 'Community Access' },
+] as const;
+
+export const FIM_MOBILITY_ITEMS = [
+    { key: 'fim_bed_chair_transfer', label: 'Bed / Chair / Wheelchair Transfer' },
+    { key: 'fim_toilet_transfer', label: 'Toilet Transfer' },
+    { key: 'fim_tub_shower_transfer', label: 'Tub / Shower Transfer' },
+] as const;
+
+export const FIM_DESCRIPTIONS: Record<string, Record<string, string>> = {
+    fim_walking_wheelchair: {
+        '1 Total Assistance': 'Requires total assistance.',
+        '2 Maximal Assistance': 'Performs 25–49% independently.',
+        '3 Moderate Assistance': 'Performs 50–74% independently.',
+        '4 Minimal Assistance': 'Performs ≥75% independently.',
+        '5 Supervision / Setup': 'Requires supervision only.',
+        '6 Modified Independence': 'Independent using assistive device/extra time.',
+        '7 Complete Independence': 'Walks independently without assistance.',
+    },
+    fim_stairs: {
+        '1 Total Assistance': 'Requires total assistance.',
+        '2 Maximal Assistance': 'Performs 25–49% independently.',
+        '3 Moderate Assistance': 'Performs 50–74% independently.',
+        '4 Minimal Assistance': 'Performs ≥75% independently.',
+        '5 Supervision / Setup': 'Requires supervision only.',
+        '6 Modified Independence': 'Uses handrail/device independently.',
+        '7 Complete Independence': 'Climbs stairs independently.',
+    },
+    fim_community_access: {
+        '1 Total Assistance': 'Dependent.',
+        '2 Maximal Assistance': 'Needs maximal assistance.',
+        '3 Moderate Assistance': 'Needs moderate assistance.',
+        '4 Minimal Assistance': 'Needs minimal assistance.',
+        '5 Supervision / Setup': 'Needs supervision.',
+        '6 Modified Independence': 'Independent with aid/extra time.',
+        '7 Complete Independence': 'Independent in community participation.',
+    },
+    fim_bed_chair_transfer: {
+        '1 Total Assistance': 'Requires total assistance.',
+        '2 Maximal Assistance': 'Performs 25–49% independently.',
+        '3 Moderate Assistance': 'Performs 50–74% independently.',
+        '4 Minimal Assistance': 'Performs ≥75% independently.',
+        '5 Supervision / Setup': 'Needs supervision.',
+        '6 Modified Independence': 'Independent with device/extra time.',
+        '7 Complete Independence': 'Transfers independently.',
+    },
+    fim_toilet_transfer: {
+        '1 Total Assistance': 'Requires total assistance.',
+        '2 Maximal Assistance': 'Performs 25–49% independently.',
+        '3 Moderate Assistance': 'Performs 50–74% independently.',
+        '4 Minimal Assistance': 'Performs ≥75% independently.',
+        '5 Supervision / Setup': 'Needs supervision.',
+        '6 Modified Independence': 'Independent with grab bar/device.',
+        '7 Complete Independence': 'Transfers independently on/off toilet.',
+    },
+    fim_tub_shower_transfer: {
+        '1 Total Assistance': 'Requires total assistance.',
+        '2 Maximal Assistance': 'Performs 25–49% independently.',
+        '3 Moderate Assistance': 'Performs 50–74% independently.',
+        '4 Minimal Assistance': 'Performs ≥75% independently.',
+        '5 Supervision / Setup': 'Needs supervision.',
+        '6 Modified Independence': 'Independent with shower chair/grab bars.',
+        '7 Complete Independence': 'Transfers independently in/out tub/shower.',
+    },
+};

@@ -9,10 +9,11 @@ interface SelectOption {
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
     label?: string;
     error?: string;
+    hint?: string;
     options: SelectOption[];
 }
 
-export const Select = ({ label, error, options, className = '', ...props }: SelectProps) => {
+export const Select = ({ label, error, hint, options, className = '', ...props }: SelectProps) => {
     return (
         <div className="flex flex-col gap-1 w-full">
             {label && <label className="text-sm font-medium text-text-main">{label}</label>}
@@ -32,6 +33,7 @@ export const Select = ({ label, error, options, className = '', ...props }: Sele
                 <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             </div>
             {error && <span className="text-xs text-red-500">{error}</span>}
+            {!error && hint && <span className="text-xs text-text-muted italic">{hint}</span>}
         </div>
     );
 };

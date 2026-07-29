@@ -40,6 +40,14 @@ export interface ClinicalAssessment {
     disability_type: string | null;
     fim_locomotion: string | null;
     fim_mobility: string | null;
+    // Disability — FIM Locomotion breakdown
+    fim_walking_wheelchair: string | null;
+    fim_stairs: string | null;
+    fim_community_access: string | null;
+    // Disability — FIM Mobility (Transfers) breakdown
+    fim_bed_chair_transfer: string | null;
+    fim_toilet_transfer: string | null;
+    fim_tub_shower_transfer: string | null;
     // Post-Op
     postop_surgery_type: string | null;
     weight_bearing_status: string | null;
@@ -114,6 +122,14 @@ export interface FollowUpAssessment {
     // Disability
     fim_locomotion: string | null;
     fim_mobility: string | null;
+    // Disability — FIM Locomotion breakdown
+    fim_walking_wheelchair: string | null;
+    fim_stairs: string | null;
+    fim_community_access: string | null;
+    // Disability — FIM Mobility (Transfers) breakdown
+    fim_bed_chair_transfer: string | null;
+    fim_toilet_transfer: string | null;
+    fim_tub_shower_transfer: string | null;
     // Amputation
     amp_level: string | null;
     // Early Intervention

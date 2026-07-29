@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { DailyTokenService, type DailyToken } from '@/services/dailyTokenService';
 import { findOrCreateBeneficiary, type BeneficiaryCandidate } from '@/services/beneficiaryService';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import {
     Users,
     UserPlus,
@@ -185,12 +186,20 @@ export function TokenManagementPage() {
         fetchTokens();
         fetchCenters();
 
-        // Polling for live updates (simple approach)
+        // Fallback poll in case the Realtime channel below misses an event
+        // (e.g. a brief disconnect) — Realtime is the primary refresh path.
         const interval = setInterval(fetchTokens, 30000);
         return () => clearInterval(interval);
     }, [fetchTokens, fetchCenters]);
 
-    const handleSearch = async (query: string) => {
+    // Live cross-device sync: another device generating/updating a token
+    // shows up in the queue within ~1s instead of waiting for the 30s poll.
+    useRealtimeSync({
+        tables: 'tokens',
+        onChange: fetchTokens,
+    });
+
+    const handleSearch = useCallback(async (query: string) => {
         setSearchQuery(query);
         if (query.length < 2) {
             setBeneficiaries([]);
@@ -206,7 +215,16 @@ export function TokenManagementPage() {
         if (!error && data) {
             setBeneficiaries(data);
         }
-    };
+    }, []);
+
+    // Live cross-device sync: refresh the beneficiary search dropdown while
+    // it's open so a beneficiary registered on another device is findable
+    // immediately, not just after the next keystroke.
+    useRealtimeSync({
+        tables: 'beneficiaries',
+        onChange: () => handleSearch(searchQuery),
+        enabled: searchQuery.length >= 2,
+    });
 
     const selectBeneficiary = (b: Beneficiary) => {
         setSelectedBen(b);

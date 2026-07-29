@@ -4,7 +4,7 @@ import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { Button } from '@/components/common/Button';
 import { Loader } from '@/components/common/Loader';
-import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
+import { DROPDOWNS, toOptions, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS, FIM_DESCRIPTIONS } from '@/constants/assessmentDropdowns';
 import { getVASCategory } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
@@ -216,8 +216,9 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
             if (!data.dyspnea_mrmc) e.dyspnea_mrmc = 'Dyspnea is required';
         }
         if (condition === 'Disability') {
-            if (!data.fim_locomotion) e.fim_locomotion = 'FIM Locomotion is required';
-            if (!data.fim_mobility) e.fim_mobility = 'FIM Mobility is required';
+            for (const item of [...FIM_LOCOMOTION_ITEMS, ...FIM_MOBILITY_ITEMS]) {
+                if (!data[item.key as keyof typeof data]) e[item.key] = `${item.label} is required`;
+            }
         }
         if (condition === 'Amputation') {
             if (!data.amp_level) e.amp_level = 'AMP level is required';
@@ -254,8 +255,16 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         coordination_test: condition === 'Neurological Condition' ? data.coordination_test || null : null,
         coordination_severity: condition === 'Neurological Condition' ? data.coordination_severity || null : null,
         dyspnea_mrmc: condition === 'Pulmonary Condition' ? data.dyspnea_mrmc || null : null,
-        fim_locomotion: condition === 'Disability' ? data.fim_locomotion || null : null,
-        fim_mobility: condition === 'Disability' ? data.fim_mobility || null : null,
+        // Kept as-is (not editable here anymore) so re-saving an older session
+        // doesn't blank out its legacy value — new sessions simply leave these null.
+        fim_locomotion: data.fim_locomotion || null,
+        fim_mobility: data.fim_mobility || null,
+        fim_walking_wheelchair: condition === 'Disability' ? data.fim_walking_wheelchair || null : null,
+        fim_stairs: condition === 'Disability' ? data.fim_stairs || null : null,
+        fim_community_access: condition === 'Disability' ? data.fim_community_access || null : null,
+        fim_bed_chair_transfer: condition === 'Disability' ? data.fim_bed_chair_transfer || null : null,
+        fim_toilet_transfer: condition === 'Disability' ? data.fim_toilet_transfer || null : null,
+        fim_tub_shower_transfer: condition === 'Disability' ? data.fim_tub_shower_transfer || null : null,
         amp_level: condition === 'Amputation' ? data.amp_level || null : null,
         // Early Intervention
         ei_head_control_status: isEI ? data.ei_head_control_status || null : null,
@@ -396,8 +405,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                     )}
                                     {condition === 'Disability' && (
                                         <>
-                                            <th className="text-left py-2 px-3 font-medium text-text-muted">FIM Locomotion</th>
-                                            <th className="text-left py-2 px-3 font-medium text-text-muted">FIM Mobility</th>
+                                            <th className="text-left py-2 px-3 font-medium text-text-muted">Walk/W'chair</th>
+                                            <th className="text-left py-2 px-3 font-medium text-text-muted">Stairs</th>
+                                            <th className="text-left py-2 px-3 font-medium text-text-muted">Community</th>
+                                            <th className="text-left py-2 px-3 font-medium text-text-muted">Bed/Chair Xfer</th>
+                                            <th className="text-left py-2 px-3 font-medium text-text-muted">Toilet Xfer</th>
+                                            <th className="text-left py-2 px-3 font-medium text-text-muted">Tub/Shower Xfer</th>
                                         </>
                                     )}
                                     {condition === 'Amputation' && (
@@ -452,8 +465,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                         )}
                                         {condition === 'Disability' && (
                                             <>
-                                                <td className="py-2 px-3">{clinicalData.fim_locomotion || '—'}</td>
-                                                <td className="py-2 px-3">{clinicalData.fim_mobility || '—'}</td>
+                                                <td className="py-2 px-3">{clinicalData.fim_walking_wheelchair || '—'}</td>
+                                                <td className="py-2 px-3">{clinicalData.fim_stairs || '—'}</td>
+                                                <td className="py-2 px-3">{clinicalData.fim_community_access || '—'}</td>
+                                                <td className="py-2 px-3">{clinicalData.fim_bed_chair_transfer || '—'}</td>
+                                                <td className="py-2 px-3">{clinicalData.fim_toilet_transfer || '—'}</td>
+                                                <td className="py-2 px-3">{clinicalData.fim_tub_shower_transfer || '—'}</td>
                                             </>
                                         )}
                                         {condition === 'Amputation' && (
@@ -517,8 +534,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                         )}
                                         {condition === 'Disability' && (
                                             <>
-                                                <td className="py-2 px-3">{row.fim_locomotion || '—'}</td>
-                                                <td className="py-2 px-3">{row.fim_mobility || '—'}</td>
+                                                <td className="py-2 px-3">{row.fim_walking_wheelchair || '—'}</td>
+                                                <td className="py-2 px-3">{row.fim_stairs || '—'}</td>
+                                                <td className="py-2 px-3">{row.fim_community_access || '—'}</td>
+                                                <td className="py-2 px-3">{row.fim_bed_chair_transfer || '—'}</td>
+                                                <td className="py-2 px-3">{row.fim_toilet_transfer || '—'}</td>
+                                                <td className="py-2 px-3">{row.fim_tub_shower_transfer || '—'}</td>
                                             </>
                                         )}
                                         {condition === 'Amputation' && (
@@ -715,23 +736,37 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                     {condition === 'Disability' && (
                         <Card>
                             <h3 className="font-semibold text-text-main mb-4">Progress — Disability</h3>
+
+                            <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-3">FIM Locomotion</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Select
-                                    label="FIM Locomotion"
-                                    value={data.fim_locomotion || ''}
-                                    onChange={e => set('fim_locomotion', e.target.value)}
-                                    options={toOptions(DROPDOWNS.FIM)}
-                                    error={errors.fim_locomotion}
-                                    required
-                                />
-                                <Select
-                                    label="FIM Mobility (Transfers)"
-                                    value={data.fim_mobility || ''}
-                                    onChange={e => set('fim_mobility', e.target.value)}
-                                    options={toOptions(DROPDOWNS.FIM)}
-                                    error={errors.fim_mobility}
-                                    required
-                                />
+                                {FIM_LOCOMOTION_ITEMS.map(item => (
+                                    <Select
+                                        key={item.key}
+                                        label={item.label}
+                                        value={(data[item.key as keyof typeof data] as string) || ''}
+                                        onChange={e => set(item.key, e.target.value)}
+                                        options={toOptions(DROPDOWNS.FIM_SCALE)}
+                                        hint={FIM_DESCRIPTIONS[item.key]?.[data[item.key as keyof typeof data] as string]}
+                                        error={errors[item.key]}
+                                        required
+                                    />
+                                ))}
+                            </div>
+
+                            <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider mt-6 mb-3">FIM Mobility (Transfers)</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {FIM_MOBILITY_ITEMS.map(item => (
+                                    <Select
+                                        key={item.key}
+                                        label={item.label}
+                                        value={(data[item.key as keyof typeof data] as string) || ''}
+                                        onChange={e => set(item.key, e.target.value)}
+                                        options={toOptions(DROPDOWNS.FIM_SCALE)}
+                                        hint={FIM_DESCRIPTIONS[item.key]?.[data[item.key as keyof typeof data] as string]}
+                                        error={errors[item.key]}
+                                        required
+                                    />
+                                ))}
                             </div>
                         </Card>
                     )}

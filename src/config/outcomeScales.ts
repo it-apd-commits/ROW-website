@@ -1,3 +1,7 @@
+import { DROPDOWNS } from '@/constants/assessmentDropdowns';
+
+const FIM_SCALE_ORDINAL = DROPDOWNS.FIM_SCALE;
+
 export interface ScaleConfig {
     id: string;
     label: string;
@@ -82,34 +86,69 @@ export const OUTCOME_SCALES: Record<string, ScaleConfig> = {
         ],
     },
 
-    // ── Disability ──
-    fim_locomotion: {
-        id: 'fim_locomotion',
-        label: 'FIM Locomotion',
+    // ── Disability — FIM Locomotion / Mobility breakdown ──
+    // Replaces the old single fim_locomotion/fim_mobility scales — those fields
+    // are kept in the data model for historical records but are no longer
+    // written to by the form, so they're dropped from outcome tracking here.
+    fim_walking_wheelchair: {
+        id: 'fim_walking_wheelchair',
+        label: 'FIM: Walking / Wheelchair',
         condition: 'Disability',
         family: 'categorical',
         direction: 'higher_better',
-        baselineField: 'fim_locomotion',
-        followUpField: 'fim_locomotion',
-        ordinal: [
-            '1 Total Assistance', '2 Max Assistance', '3 Moderate Assistance',
-            '4 Minimal Assistance', '5 Supervision',
-            '6 Modified Independence', '7 Complete Independence',
-        ],
+        baselineField: 'fim_walking_wheelchair',
+        followUpField: 'fim_walking_wheelchair',
+        ordinal: FIM_SCALE_ORDINAL,
     },
-    fim_mobility: {
-        id: 'fim_mobility',
-        label: 'FIM Mobility',
+    fim_stairs: {
+        id: 'fim_stairs',
+        label: 'FIM: Stairs',
         condition: 'Disability',
         family: 'categorical',
         direction: 'higher_better',
-        baselineField: 'fim_mobility',
-        followUpField: 'fim_mobility',
-        ordinal: [
-            '1 Total Assistance', '2 Max Assistance', '3 Moderate Assistance',
-            '4 Minimal Assistance', '5 Supervision',
-            '6 Modified Independence', '7 Complete Independence',
-        ],
+        baselineField: 'fim_stairs',
+        followUpField: 'fim_stairs',
+        ordinal: FIM_SCALE_ORDINAL,
+    },
+    fim_community_access: {
+        id: 'fim_community_access',
+        label: 'FIM: Community Access',
+        condition: 'Disability',
+        family: 'categorical',
+        direction: 'higher_better',
+        baselineField: 'fim_community_access',
+        followUpField: 'fim_community_access',
+        ordinal: FIM_SCALE_ORDINAL,
+    },
+    fim_bed_chair_transfer: {
+        id: 'fim_bed_chair_transfer',
+        label: 'FIM: Bed / Chair / Wheelchair Transfer',
+        condition: 'Disability',
+        family: 'categorical',
+        direction: 'higher_better',
+        baselineField: 'fim_bed_chair_transfer',
+        followUpField: 'fim_bed_chair_transfer',
+        ordinal: FIM_SCALE_ORDINAL,
+    },
+    fim_toilet_transfer: {
+        id: 'fim_toilet_transfer',
+        label: 'FIM: Toilet Transfer',
+        condition: 'Disability',
+        family: 'categorical',
+        direction: 'higher_better',
+        baselineField: 'fim_toilet_transfer',
+        followUpField: 'fim_toilet_transfer',
+        ordinal: FIM_SCALE_ORDINAL,
+    },
+    fim_tub_shower_transfer: {
+        id: 'fim_tub_shower_transfer',
+        label: 'FIM: Tub / Shower Transfer',
+        condition: 'Disability',
+        family: 'categorical',
+        direction: 'higher_better',
+        baselineField: 'fim_tub_shower_transfer',
+        followUpField: 'fim_tub_shower_transfer',
+        ordinal: FIM_SCALE_ORDINAL,
     },
 
     // ── Amputation ──

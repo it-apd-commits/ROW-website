@@ -3,7 +3,7 @@ import { Card } from '@/components/common/Card';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { Button } from '@/components/common/Button';
-import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
+import { DROPDOWNS, toOptions, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS, FIM_DESCRIPTIONS } from '@/constants/assessmentDropdowns';
 import { getVASCategory } from '@/utils/assessmentLogic';
 import type { ClinicalAssessment, InitialAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
@@ -187,8 +187,9 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
         }
         if (condition === 'Disability') {
             if (!data.disability_type) e.disability_type = 'Disability type is required';
-            if (!data.fim_locomotion) e.fim_locomotion = 'FIM Locomotion is required';
-            if (!data.fim_mobility) e.fim_mobility = 'FIM Mobility is required';
+            for (const item of [...FIM_LOCOMOTION_ITEMS, ...FIM_MOBILITY_ITEMS]) {
+                if (!data[item.key as keyof typeof data]) e[item.key] = `${item.label} is required`;
+            }
         }
         if (condition === 'Post Operative Condition') {
             if (!data.postop_surgery_type) e.postop_surgery_type = 'Surgery type is required';
@@ -252,8 +253,16 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
                 dyspnea_mrmc: condition === 'Pulmonary Condition' ? data.dyspnea_mrmc || null : null,
                 // Disability
                 disability_type: condition === 'Disability' ? data.disability_type || null : null,
-                fim_locomotion: condition === 'Disability' ? data.fim_locomotion || null : null,
-                fim_mobility: condition === 'Disability' ? data.fim_mobility || null : null,
+                // Kept as-is (not editable here anymore) so re-saving an older record
+                // doesn't blank out its legacy value — new records simply leave these null.
+                fim_locomotion: data.fim_locomotion || null,
+                fim_mobility: data.fim_mobility || null,
+                fim_walking_wheelchair: condition === 'Disability' ? data.fim_walking_wheelchair || null : null,
+                fim_stairs: condition === 'Disability' ? data.fim_stairs || null : null,
+                fim_community_access: condition === 'Disability' ? data.fim_community_access || null : null,
+                fim_bed_chair_transfer: condition === 'Disability' ? data.fim_bed_chair_transfer || null : null,
+                fim_toilet_transfer: condition === 'Disability' ? data.fim_toilet_transfer || null : null,
+                fim_tub_shower_transfer: condition === 'Disability' ? data.fim_tub_shower_transfer || null : null,
                 // Post-Op
                 postop_surgery_type: condition === 'Post Operative Condition' ? data.postop_surgery_type || null : null,
                 weight_bearing_status: condition === 'Post Operative Condition' ? data.weight_bearing_status || null : null,
@@ -523,22 +532,38 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
                             error={errors.disability_type}
                             required
                         />
-                        <Select
-                            label="FIM Locomotion"
-                            value={data.fim_locomotion || ''}
-                            onChange={e => set('fim_locomotion', e.target.value)}
-                            options={toOptions(DROPDOWNS.FIM)}
-                            error={errors.fim_locomotion}
-                            required
-                        />
-                        <Select
-                            label="FIM Mobility (Transfers)"
-                            value={data.fim_mobility || ''}
-                            onChange={e => set('fim_mobility', e.target.value)}
-                            options={toOptions(DROPDOWNS.FIM)}
-                            error={errors.fim_mobility}
-                            required
-                        />
+                    </div>
+
+                    <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider mt-6 mb-3">FIM Locomotion</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {FIM_LOCOMOTION_ITEMS.map(item => (
+                            <Select
+                                key={item.key}
+                                label={item.label}
+                                value={(data[item.key as keyof typeof data] as string) || ''}
+                                onChange={e => set(item.key, e.target.value)}
+                                options={toOptions(DROPDOWNS.FIM_SCALE)}
+                                hint={FIM_DESCRIPTIONS[item.key]?.[data[item.key as keyof typeof data] as string]}
+                                error={errors[item.key]}
+                                required
+                            />
+                        ))}
+                    </div>
+
+                    <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider mt-6 mb-3">FIM Mobility (Transfers)</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {FIM_MOBILITY_ITEMS.map(item => (
+                            <Select
+                                key={item.key}
+                                label={item.label}
+                                value={(data[item.key as keyof typeof data] as string) || ''}
+                                onChange={e => set(item.key, e.target.value)}
+                                options={toOptions(DROPDOWNS.FIM_SCALE)}
+                                hint={FIM_DESCRIPTIONS[item.key]?.[data[item.key as keyof typeof data] as string]}
+                                error={errors[item.key]}
+                                required
+                            />
+                        ))}
                     </div>
                 </Card>
             )}

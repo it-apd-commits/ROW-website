@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { Search, User, Loader2, X, WifiOff } from 'lucide-react';
 import { Card } from '@/components/common/Card';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 interface Beneficiary {
     id: string;
@@ -139,6 +140,15 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
 
         return () => clearTimeout(timer);
     }, [searchTerm, searchBeneficiaries, isOpen, selectedBeneficiary]);
+
+    // Live cross-device sync: while the dropdown is open with an active search,
+    // refresh results as soon as another device inserts/updates a beneficiary —
+    // otherwise a record created elsewhere only appears after retyping.
+    useRealtimeSync({
+        tables: 'beneficiaries',
+        onChange: () => searchBeneficiaries(searchTerm),
+        enabled: isOpen && searchTerm.length >= 2,
+    });
 
     // Close dropdown on click outside
     useEffect(() => {

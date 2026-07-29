@@ -34,8 +34,20 @@ function App() {
     };
     window.addEventListener('online', handleOnline);
 
+    // Periodic retry: a push can fail once (transient network blip, dropped
+    // session) and stay stuck in Dexie until the next reload or online event.
+    // Re-attempting every 30s while online lets it self-heal without either.
+    const retryInterval = setInterval(() => {
+      if (navigator.onLine) {
+        import('./lib/syncService').then(({ SyncService }) => {
+          SyncService.syncPendingRecords().catch(console.error);
+        });
+      }
+    }, 30000);
+
     return () => {
       clearTimeout(timer);
+      clearInterval(retryInterval);
       window.removeEventListener('online', handleOnline);
     };
   }, []);
