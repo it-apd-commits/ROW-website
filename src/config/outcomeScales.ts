@@ -23,7 +23,7 @@ export const OUTCOME_SCALES: Record<string, ScaleConfig> = {
         family: 'numeric',
         direction: 'lower_better',
         baselineField: 'vas_pre',
-        followUpField: 'vas_current',
+        followUpField: 'vas_post',
     },
     rom: {
         id: 'rom',

@@ -347,8 +347,8 @@ export function AssessmentViewPage() {
                                             <>
                                                 <td className="py-3 px-3">{row.rom || '—'}</td>
                                                 <td className="py-3 px-3">{row.strength || '—'}</td>
-                                                <td className="py-3 px-3">{row.vas_previous ?? '—'}</td>
                                                 <td className="py-3 px-3">{row.vas_current ?? '—'}</td>
+                                                <td className="py-3 px-3">{row.vas_post ?? '—'}</td>
                                             </>
                                         )}
                                         {condition === 'Neurological Condition' && (
@@ -390,7 +390,7 @@ export function AssessmentViewPage() {
 
                 if (condition === 'Neuro Muscular Painful Condition') {
                     const baseVas = clinical.vas_pre;
-                    const currVas = latest.vas_current;
+                    const currVas = latest.vas_post;
                     outcomes.push(
                         { label: 'ROM', baseline: clinical.rom_aaos, current: latest.rom, improved: null },
                         { label: 'Strength', baseline: clinical.strength_mmt, current: latest.strength, improved: null },

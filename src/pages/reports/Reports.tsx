@@ -9,6 +9,7 @@ import {
     AlertTriangle,
     Users,
     ClipboardList,
+    CheckCircle2,
     Filter,
     Loader2,
 } from 'lucide-react';
@@ -19,7 +20,9 @@ import { Select } from '@/components/common/Select';
 import { getOutcomes, summarize } from '@/services/outcomeEvaluationService';
 import { getAllScales, getConditions, getScalesByCondition } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
-import type { OutcomeRow, OutcomeSummary, OutcomeFilters } from '@/types/outcomeEvaluation';
+import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
+
+type CardFilter = OutcomeStatus | 'endline_completed' | null;
 
 const ALL_SCALES = getAllScales();
 const CONDITIONS = getConditions();
@@ -53,6 +56,7 @@ export function ReportsPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [cardFilter, setCardFilter] = useState<CardFilter>(null);
 
     const conditionScales = getScalesByCondition(selectedCondition);
     const activeScale: ScaleConfig | undefined = conditionScales.find(s => s.id === scaleId) || conditionScales[0];
@@ -78,6 +82,7 @@ export function ReportsPage() {
             const data = await getOutcomes(filters);
             setRows(data);
             setSummary(summarize(data));
+            setCardFilter(null);
         } catch (err) {
             console.error('Outcome report error:', err);
             setError(err instanceof Error ? err.message : 'Failed to load report');
@@ -90,10 +95,14 @@ export function ReportsPage() {
         fetchReport();
     }, [fetchReport]);
 
-    const filteredRows = rows.filter(r =>
-        r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.patient_id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredRows = rows.filter(r => {
+        const matchesSearch = r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            r.patient_id.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesCard = cardFilter === null ? true
+            : cardFilter === 'endline_completed' ? r.current_date != null
+            : r.status === cardFilter;
+        return matchesSearch && matchesCard;
+    });
 
     const evaluableCount = summary
         ? summary.improved + summary.declined + summary.same + summary.needs_referral
@@ -123,7 +132,8 @@ export function ReportsPage() {
             summarySheet.addRow({ field: 'Declined', value: `${summary.declined} (${pct(summary.declined)})` });
             summarySheet.addRow({ field: 'Same', value: `${summary.same} (${pct(summary.same)})` });
             summarySheet.addRow({ field: 'Needs Referral', value: summary.needs_referral });
-            summarySheet.addRow({ field: 'Baseline Only', value: summary.baseline_only });
+            summarySheet.addRow({ field: 'Baseline Only (Endline Pending)', value: summary.baseline_only });
+            summarySheet.addRow({ field: 'Endline Completed', value: rows.filter(r => r.current_date != null).length });
             summarySheet.addRow({ field: 'Not Evaluable', value: summary.not_evaluable });
         }
 
@@ -134,8 +144,8 @@ export function ReportsPage() {
             { header: 'Scale', key: 'scale', width: 28 },
             { header: 'Baseline Value', key: 'baseline_value', width: 18 },
             { header: 'Baseline Date', key: 'baseline_date', width: 16 },
-            { header: 'Current Value', key: 'current_value', width: 18 },
-            { header: 'Current Date', key: 'current_date', width: 16 },
+            { header: 'Endline Value', key: 'current_value', width: 18 },
+            { header: 'Endline Date', key: 'current_date', width: 16 },
             { header: 'Status', key: 'status', width: 18 },
         ];
 
@@ -255,6 +265,8 @@ export function ReportsPage() {
                         value={summary.total}
                         accent="text-primary"
                         bgAccent="bg-primary/10"
+                        active={cardFilter === null}
+                        onClick={() => setCardFilter(null)}
                     />
                     <SummaryCard
                         icon={<TrendingUp size={18} className="text-green-600" />}
@@ -263,6 +275,8 @@ export function ReportsPage() {
                         sub={pct(summary.improved)}
                         accent="text-green-700"
                         bgAccent="bg-green-100"
+                        active={cardFilter === 'improved'}
+                        onClick={() => setCardFilter(f => f === 'improved' ? null : 'improved')}
                     />
                     <SummaryCard
                         icon={<TrendingDown size={18} className="text-red-600" />}
@@ -271,6 +285,8 @@ export function ReportsPage() {
                         sub={pct(summary.declined)}
                         accent="text-red-700"
                         bgAccent="bg-red-100"
+                        active={cardFilter === 'declined'}
+                        onClick={() => setCardFilter(f => f === 'declined' ? null : 'declined')}
                     />
                     <SummaryCard
                         icon={<Minus size={18} className="text-amber-600" />}
@@ -279,6 +295,8 @@ export function ReportsPage() {
                         sub={pct(summary.same)}
                         accent="text-amber-700"
                         bgAccent="bg-amber-100"
+                        active={cardFilter === 'same'}
+                        onClick={() => setCardFilter(f => f === 'same' ? null : 'same')}
                     />
                     {activeScale?.id === 'ei_outcome' && (
                         <SummaryCard
@@ -287,6 +305,8 @@ export function ReportsPage() {
                             value={summary.needs_referral}
                             accent="text-purple-700"
                             bgAccent="bg-purple-100"
+                            active={cardFilter === 'needs_referral'}
+                            onClick={() => setCardFilter(f => f === 'needs_referral' ? null : 'needs_referral')}
                         />
                     )}
                     <SummaryCard
@@ -295,6 +315,17 @@ export function ReportsPage() {
                         value={summary.baseline_only}
                         accent="text-gray-600"
                         bgAccent="bg-gray-100"
+                        active={cardFilter === 'baseline_only'}
+                        onClick={() => setCardFilter(f => f === 'baseline_only' ? null : 'baseline_only')}
+                    />
+                    <SummaryCard
+                        icon={<CheckCircle2 size={18} className="text-teal-600" />}
+                        label="Endline Done"
+                        value={rows.filter(r => r.current_date != null).length}
+                        accent="text-teal-700"
+                        bgAccent="bg-teal-100"
+                        active={cardFilter === 'endline_completed'}
+                        onClick={() => setCardFilter(f => f === 'endline_completed' ? null : 'endline_completed')}
                     />
                 </div>
             )}
@@ -341,7 +372,7 @@ export function ReportsPage() {
                                     <th className="py-4 font-bold text-[10px] uppercase text-gray-400 tracking-wider pl-4">Patient ID</th>
                                     <th className="py-4 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Name</th>
                                     <th className="py-4 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Baseline</th>
-                                    <th className="py-4 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Current</th>
+                                    <th className="py-4 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Endline</th>
                                     <th className="py-4 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Status</th>
                                 </tr>
                             </thead>
@@ -397,9 +428,9 @@ export function ReportsPage() {
                 <Card className="p-4 bg-gray-50/50 border-gray-100">
                     <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">How it works</h4>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
-                        Baseline values come from the initial clinical assessment. Current values come from the most recent
-                        follow-up assessment within the selected date range. "Baseline Only" means no follow-up has been
-                        recorded in the selected period.
+                        Baseline values come from the initial clinical assessment. Endline values come from the most recent
+                        follow-up assessment within the selected date range (for VAS Pain, the post-treatment reading of that
+                        visit). "Baseline Only" means no follow-up has been recorded in the selected period yet.
                     </p>
                 </Card>
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
@@ -414,24 +445,33 @@ export function ReportsPage() {
     );
 }
 
-function SummaryCard({ icon, label, value, sub, accent, bgAccent }: {
+function SummaryCard({ icon, label, value, sub, accent, bgAccent, active, onClick }: {
     icon: React.ReactNode;
     label: string;
     value: number;
     sub?: string;
     accent: string;
     bgAccent: string;
+    active: boolean;
+    onClick: () => void;
 }) {
     return (
-        <div className="p-4 sm:p-5 bg-white rounded-2xl border border-gray-100 shadow-sm min-w-0">
+        <button
+            type="button"
+            onClick={onClick}
+            className={`text-left w-full p-4 sm:p-5 rounded-2xl border shadow-sm min-w-0 transition-colors ${active
+                ? 'bg-primary/5 border-primary/40 ring-2 ring-primary/20'
+                : 'bg-white border-gray-100 hover:border-primary/20'
+                }`}
+        >
             <div className="flex items-center gap-2 mb-2">
                 <div className={`p-2 ${bgAccent} rounded-xl shrink-0`}>{icon}</div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-tight min-w-0 break-words">
-                    {label}
+                    {label}{active && label !== 'Total Patients' ? ' (Filtered)' : ''}
                 </p>
             </div>
             <h3 className={`text-2xl font-black ${accent}`}>{value}</h3>
             {sub && <p className="text-[11px] text-gray-400 font-medium mt-0.5">{sub}</p>}
-        </div>
+        </button>
     );
 }
