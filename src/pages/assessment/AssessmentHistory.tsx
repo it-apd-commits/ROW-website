@@ -54,6 +54,7 @@ export function AssessmentHistoryPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
+    const [followUpOnly, setFollowUpOnly] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const navigate = useNavigate();
     const { canDeleteRecords, canExportData } = usePermissions();
@@ -172,8 +173,9 @@ export function AssessmentHistoryPage() {
 
         const matchesFrom = !fromDate || r.assessment_date >= fromDate;
         const matchesTo = !toDate || r.assessment_date <= toDate;
+        const matchesFollowUp = !followUpOnly || r.follow_up_count > 0;
 
-        return matchesSearch && matchesFrom && matchesTo;
+        return matchesSearch && matchesFrom && matchesTo && matchesFollowUp;
     });
 
     // Stats
@@ -303,9 +305,9 @@ export function AssessmentHistoryPage() {
                             value={toDate}
                             onChange={(e) => setToDate(e.target.value)}
                         />
-                        {(searchTerm || fromDate || toDate) && (
+                        {(searchTerm || fromDate || toDate || followUpOnly) && (
                             <button
-                                onClick={() => { setSearchTerm(''); setFromDate(''); setToDate(''); }}
+                                onClick={() => { setSearchTerm(''); setFromDate(''); setToDate(''); setFollowUpOnly(false); }}
                                 className="text-xs font-bold text-primary hover:underline px-2"
                             >
                                 Clear All
@@ -327,15 +329,25 @@ export function AssessmentHistoryPage() {
                             <h3 className="text-2xl font-black text-primary">{totalPatients}</h3>
                         </div>
 
-                        <div className="p-4 sm:p-5 bg-white rounded-2xl border border-gray-100 shadow-sm min-w-0">
+                        <button
+                            type="button"
+                            onClick={() => setFollowUpOnly(prev => !prev)}
+                            title="Show only patients who have at least one follow-up session"
+                            className={`text-left p-4 sm:p-5 rounded-2xl border shadow-sm min-w-0 transition-colors ${followUpOnly
+                                ? 'bg-green-50 border-green-300 ring-2 ring-green-200'
+                                : 'bg-white border-gray-100 hover:border-green-200'
+                                }`}
+                        >
                             <div className="flex items-center gap-2 mb-2">
                                 <div className="p-2 bg-green-100 rounded-xl shrink-0">
                                     <Calendar size={18} className="text-green-600" />
                                 </div>
-                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-tight min-w-0 break-words">Follow-Up Sessions</p>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-tight min-w-0 break-words">
+                                    Follow-Up Sessions{followUpOnly ? ' (Filtered)' : ''}
+                                </p>
                             </div>
                             <h3 className="text-2xl font-black text-green-700">{totalFollowUps}</h3>
-                        </div>
+                        </button>
 
                         <div className="p-4 sm:p-5 bg-white rounded-2xl border border-gray-100 shadow-sm min-w-0">
                             <div className="flex items-center gap-2 mb-2">

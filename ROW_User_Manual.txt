@@ -1,0 +1,784 @@
+================================================================================
+           ROW (REHAB ON WHEELS) — COMPLETE USER MANUAL
+           APD India | Offline-First Healthcare PWA
+================================================================================
+
+Last Updated: June 2026
+Version: 1.0
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+ 1. Login & Authentication
+ 2. Dashboard (Home)
+ 3. Calendar
+ 4. Token Management
+ 5. Add Beneficiary
+ 6. Beneficiary List
+ 7. Beneficiary Profile
+ 8. Assessment Entry (3-Step Workflow)
+ 9. Assessment History
+10. Service Entry
+11. Service History
+12. Bulk Import Services
+13. Live Bus Tracking
+14. Add Trip
+15. Trip History
+16. Exercise Library
+17. Reports & Analytics
+18. Sync Control
+19. Admin Control Panel
+20. Settings
+21. Offline Mode Guide
+22. Role & Permissions Reference
+
+================================================================================
+SECTION 1 — LOGIN & AUTHENTICATION
+================================================================================
+
+PURPOSE
+  Sign in to the ROW application using your organisation email and password.
+
+STEPS
+  1. Open the ROW application in your browser or PWA.
+  2. You will be taken to the Login page automatically if you are not signed in.
+  3. Enter your registered email address in the "Email" field.
+  4. Enter your password in the "Password" field.
+  5. Click the "Sign In" button.
+  6. If credentials are correct, you are redirected to the Dashboard.
+
+IMPORTANT NOTES
+  - If you forget your password, contact your Admin to reset it.
+  - The app uses Supabase authentication. Your session is stored securely.
+  - You will remain logged in even after closing the browser (persistent session).
+  - If you see "Invalid credentials", check your email and password carefully.
+
+ROLES
+  After login, the application shows only the pages and actions your role allows.
+  See Section 22 for a full Role & Permissions reference.
+
+================================================================================
+SECTION 2 — DASHBOARD (HOME)
+================================================================================
+
+PURPOSE
+  The Dashboard is your starting point. It shows key metrics, quick-access
+  buttons, and a summary of today's activity.
+
+WHAT YOU SEE
+  - Total Beneficiaries registered in the system
+  - Services provided today
+  - Pending sync count (records waiting to be uploaded)
+  - Upcoming scheduled services
+  - Quick-action buttons for common tasks
+
+STEPS TO USE
+  1. After login, you land on the Dashboard automatically.
+  2. Review the metric cards at the top for a quick overview.
+  3. Use the quick-action buttons (e.g., "Add Beneficiary", "New Service Entry")
+     to jump directly to the relevant page.
+  4. If there are pending syncs, click "Sync Now" to push offline records.
+
+TIPS
+  - The Dashboard refreshes its data each time you visit.
+  - When offline, metrics reflect local Dexie (IndexedDB) data.
+  - The pending sync counter will show 0 once all records are uploaded.
+
+================================================================================
+SECTION 3 — CALENDAR
+================================================================================
+
+PURPOSE
+  View all scheduled and availed service entries in a monthly/weekly calendar
+  view to plan and track appointments.
+
+STEPS
+  1. Click "Calendar" in the left sidebar navigation.
+  2. The calendar opens on the current month by default.
+  3. Each colored dot or event block represents a service entry.
+  4. Click on an event to view details (beneficiary, service code, provider).
+  5. Use the "<" and ">" arrows to navigate between months.
+  6. Use the "Week" / "Month" toggle (if available) to change the view.
+
+COLOR CODES
+  - Green  : AVAILED (service was delivered)
+  - Blue   : SCHEDULED (service is planned, not yet delivered)
+  - Red    : Sync Failed entries
+
+TIPS
+  - Scheduled entries that have passed their date should be updated to AVAILED
+    via the Service Entry page.
+  - The calendar only shows entries that are stored locally or synced from the
+    server depending on your online/offline state.
+
+================================================================================
+SECTION 4 — TOKEN MANAGEMENT
+================================================================================
+
+PURPOSE
+  Issue daily tokens to beneficiaries visiting the camp. Tokens are sequential
+  numbers that track walk-in order.
+
+STEPS TO ISSUE A TOKEN
+  1. Click "Token" or "Token Management" in the sidebar.
+  2. The page shows today's last issued token number.
+  3. Click "Issue Next Token" to generate the next token number.
+  4. The token is displayed on screen — note it down or print it for the
+     beneficiary.
+  5. Token numbers reset at the start of each day automatically.
+
+STEPS TO VIEW TOKEN HISTORY
+  1. On the Token page, scroll down to see today's issued tokens.
+  2. Each row shows: Token No., Beneficiary Name (if linked), Time Issued.
+
+NOTES
+  - Token numbers are stored locally and synced to the server.
+  - If offline, tokens are issued from local storage and will sync later.
+  - Only Staff, Manager, and Admin roles can issue tokens.
+
+================================================================================
+SECTION 5 — ADD BENEFICIARY
+================================================================================
+
+PURPOSE
+  Register a new beneficiary (patient) into the ROW system.
+
+STEPS
+  1. Click "Add Beneficiary" in the sidebar or from the Dashboard quick-action.
+  2. Fill in the required fields (marked with *):
+       - Name *
+       - Age *
+       - Gender *
+       - Phone Number *
+       - Village / Address
+       - Documents (BPL / APL / AADHAR / UDID / Not Applicable)
+       - Condition (Neuro Muscular, Neurological, Pulmonary, etc.)
+       - Any other fields shown on the form
+  3. Click "Save Beneficiary".
+  4. If online: the record is saved to Supabase immediately.
+     If offline: the record is saved to local storage (Dexie) with status
+     "Pending Sync" and will auto-upload when internet is restored.
+  5. A success message confirms registration.
+  6. You can click "Add Assessment" button on the success/confirmation screen
+     to immediately start an assessment for this beneficiary.
+
+IMPORTANT NOTES
+  - Each beneficiary receives a unique File Number assigned by the server.
+  - Offline registrations use a temporary offline token (OFF-XXXXX) until synced.
+  - Duplicate registrations are prevented by the system (phone number / name
+    matching may apply based on configuration).
+
+================================================================================
+SECTION 6 — BENEFICIARY LIST
+================================================================================
+
+PURPOSE
+  Search and browse all registered beneficiaries.
+
+STEPS
+  1. Click "Beneficiaries" in the sidebar.
+  2. The list shows all beneficiaries available locally (synced + pending).
+  3. Use the Search bar at the top to search by:
+       - Name
+       - File Number
+       - Phone Number
+  4. Click on a beneficiary row to open their Profile page.
+  5. Use filter options (if shown) to narrow by condition, location, or date.
+
+PAGINATION
+  - The list shows records in pages. Use "Next" / "Previous" buttons to navigate.
+  - When online, the list may fetch from the server for the most up-to-date data.
+
+TIPS
+  - If a beneficiary doesn't appear in the list, try pulling fresh data from
+    the Sync Control page (Section 18).
+  - Beneficiaries with "Pending Sync" status are registered offline and not yet
+    on the server.
+
+================================================================================
+SECTION 7 — BENEFICIARY PROFILE
+================================================================================
+
+PURPOSE
+  View complete details of a single beneficiary including their history,
+  assessments, and services.
+
+HOW TO OPEN
+  Click any beneficiary row in the Beneficiary List (Section 6).
+
+WHAT YOU SEE
+  - Personal details: Name, Age, Gender, Phone, Address, Documents
+  - File Number and Token Number
+  - Registration date
+  - Condition / Chief Complaint
+  - Assessment History tab: all assessments done for this beneficiary
+  - Service History tab: all service entries for this beneficiary
+  - Action buttons: Edit Details, Add Assessment, Add Service Entry
+
+STEPS TO EDIT A BENEFICIARY
+  1. On the Profile page, click "Edit".
+  2. Update the required fields.
+  3. Click "Save Changes".
+  4. Changes sync to the server if online, or stay pending if offline.
+
+STEPS TO NAVIGATE TO ASSESSMENT
+  1. Click "Add Assessment" button on the Profile page.
+  2. You are taken to the Assessment Entry page pre-filled with this beneficiary.
+
+================================================================================
+SECTION 8 — ASSESSMENT ENTRY (3-STEP WORKFLOW)
+================================================================================
+
+PURPOSE
+  Record a full clinical assessment for a beneficiary. The assessment is split
+  into three steps: Initial Assessment, Clinical Assessment, and Core Service
+  Details.
+
+--------------------------------------------------------------------------------
+STEP 1: INITIAL ASSESSMENT
+--------------------------------------------------------------------------------
+
+  1. Click "Assessment Entry" in the sidebar or "Add Assessment" from a profile.
+  2. On Step 1, fill in:
+       - Patient ID / Beneficiary (search by name or file number)
+       - Date of Assessment
+       - Chief Complaint (select from dropdown)
+       - Condition Type (Neuro Muscular, Neurological, Pulmonary, Disability,
+         Amputation, Post Operative, Early Intervention Assessment)
+       - History of Present Illness (free text)
+       - Relevant Medical History
+       - Any other fields shown for the selected condition
+  3. Click "Next" to proceed to Step 2.
+
+  NOTE: Fields change based on the Condition selected.
+
+--------------------------------------------------------------------------------
+STEP 2: CLINICAL ASSESSMENT
+--------------------------------------------------------------------------------
+
+  1. Step 2 shows condition-specific clinical fields:
+       - For Neuro/Musculoskeletal: ROM, Muscle Strength, Balance, Coordination
+       - For Pulmonary: Cough type, Dyspnea scale, Pulmonary symptoms
+       - For Disability: Disability type, FIM score
+       - For Amputation: Amputation level, Residual limb status, Prosthesis stage
+       - For Post-Operative: Surgery type, Weight bearing status, Mobility
+       - For Early Intervention: All developmental domains (Head Control, Rolling,
+         Sitting, Crawling, Standing, Walking, Hand Function, Communication,
+         Social, Self-Care, Attention, Play, Intelligence)
+  2. Fill in all relevant fields for the selected condition.
+  3. Enter "Short Term Goals" and "Long Term Goals" (free text).
+  4. Enter "Treatment Plan" (free text).
+  5. In the "Core Service Details" panel (within Step 2):
+       a. Select Status: SCHEDULED or AVAILED
+       b. Search and select the Beneficiary
+       c. Set Schedule Date, Start Date, End Date (required if AVAILED)
+       d. Select Location Code (default: MCB)
+       e. Select Follow-up Number (auto-detected from history)
+       f. Enter Service Provider Code / Name
+       g. Select Mode of Services (default: ROW)
+       h. In the "Services Provided" panel:
+          - Select a Service Code from the dropdown
+          - Enter Minutes for that service
+          - Click "Add Service" to add more services
+          - Each row will be saved as a separate Service History entry
+  6. Click "Save & Continue" to save the assessment and all service entries.
+
+  NOTE: Service entries are saved to Service History automatically.
+        If online, they sync immediately. If offline, they sync when internet
+        is restored.
+
+--------------------------------------------------------------------------------
+STEP 3: CONFIRMATION / FOLLOW-UP
+--------------------------------------------------------------------------------
+
+  1. After saving, a confirmation screen shows success messages.
+  2. You can navigate to:
+       - Assessment History to view the saved record
+       - Service History to verify service entries
+       - Add another assessment for the same or different beneficiary
+
+================================================================================
+SECTION 9 — ASSESSMENT HISTORY
+================================================================================
+
+PURPOSE
+  View and review all past assessments.
+
+STEPS
+  1. Click "Assessment History" in the sidebar.
+  2. The list shows all assessments with:
+       - Patient Name
+       - Assessment Date
+       - Condition Type
+       - Assessment Type (Initial / Follow-up)
+  3. Use the Search bar to find by patient name or date.
+  4. Click an assessment row to view full details.
+  5. Use filters to narrow by condition or date range.
+
+VIEWING DETAILS
+  - Click on any assessment to open the full read-only view.
+  - All fields, goals, and treatment plan are shown.
+  - Service entries linked to this assessment are listed at the bottom.
+
+NOTES
+  - Assessments saved offline show "Pending Sync" until uploaded.
+  - Admin and Manager can view all assessments. Staff see their own entries.
+
+================================================================================
+SECTION 10 — SERVICE ENTRY
+================================================================================
+
+PURPOSE
+  Manually add a service entry for a beneficiary outside of the assessment
+  workflow.
+
+STEPS
+  1. Click "Service Entry" in the sidebar.
+  2. Fill in the form:
+       a. Status: Select SCHEDULED or AVAILED
+       b. Beneficiary: Search by name or file number and select
+       c. Schedule Date: Date the service is planned
+       d. Start Date: Date service began
+       e. End Date: Required if Status is AVAILED
+       f. Location Code: Select from dropdown (default MCB)
+       g. Follow-up Number: Select Initial Visit or Follow Up 1-4
+          (auto-detected from history when beneficiary is selected)
+       h. Service Provider Code / Name: Enter the provider's name or code
+       i. Mode of Services: Select from dropdown (default ROW)
+       j. Services Provided panel:
+          - Row 1 is added automatically
+          - Select a Service Code from the dropdown
+          - Enter Minutes for that service (e.g., 30)
+          - Click "Add Service" to add more rows
+          - Each row saves as a SEPARATE entry in Service History
+          - Click the red X button to remove a row
+  3. Click "Save Entry" (or equivalent save button).
+  4. Success message confirms all entries were saved.
+  5. If online, entries sync immediately. If offline, they sync later.
+
+VALIDATION RULES
+  - At least one service row must be filled (code + minutes > 0).
+  - Duplicate service codes in the same form are not allowed.
+  - End Date is mandatory when status is AVAILED.
+  - Start Date cannot be before Schedule Date.
+  - End Date cannot be before Start Date.
+
+================================================================================
+SECTION 11 — SERVICE HISTORY
+================================================================================
+
+PURPOSE
+  View all service entries across all beneficiaries.
+
+STEPS
+  1. Click "Service History" in the sidebar.
+  2. The table shows all service entries with:
+       - Date
+       - Beneficiary Name / File Number
+       - Service Code
+       - Minutes / Hours
+       - Location
+       - Provider
+       - Status (SCHEDULED / AVAILED)
+       - Sync Status (Synced / Pending / Sync Failed)
+  3. Use the Search bar to filter by beneficiary name, file number, or service.
+  4. Use Date Range filters to narrow results.
+  5. Click column headers to sort.
+
+SYNC STATUS INDICATORS
+  - "Synced" (green)      : Record is saved on the server successfully.
+  - "Pending Sync" (yellow): Record is saved locally and waiting to upload.
+  - "Sync Failed" (red)   : Upload was attempted but failed. Hover over the
+                             badge to see the error message.
+
+OFFLINE ENTRIES
+  - Entries created offline appear at the top of the list with "Pending Sync".
+  - They will automatically upload when you are online.
+  - If "Sync Failed" appears, go to Sync Control (Section 18) to retry.
+
+EXPORT
+  - Use the Export button (if available) to download the service history as
+    an Excel or CSV file.
+
+================================================================================
+SECTION 12 — BULK IMPORT SERVICES
+================================================================================
+
+PURPOSE
+  Import multiple service entries at once using an Excel template instead of
+  entering them one by one.
+
+STEPS
+  1. Go to Service History page (Section 11).
+  2. Click the "Import Services" button.
+  3. The Import Services modal opens.
+
+DOWNLOADING THE TEMPLATE
+  4. Click "Download Template" to get the Excel import template.
+  5. Open the downloaded file in Excel or Google Sheets.
+  6. The template has:
+       - Green columns: Required fields (must be filled)
+       - Yellow columns: Optional fields
+       - Row 2: Hints explaining each column
+       - Row 3: A sample row showing the correct format
+       - Reference sheet: Lists all valid service codes, locations, modes
+
+FILLING THE TEMPLATE
+  7. Start filling data from Row 4 onwards (below the sample row).
+  8. Required columns:
+       - file_number: Beneficiary's file number (e.g., ROW-0001)
+       - schedule_date: Date in YYYY-MM-DD format (e.g., 2026-06-15)
+       - start_date: Date in YYYY-MM-DD format
+       - service_code: Valid service code from the Reference sheet
+       - total_minutes: Number of minutes (e.g., 30)
+       - service_provider_code: Provider name or code
+  9. Optional columns:
+       - end_date, status, location_code, mode_of_service, custom_field2
+ 10. Save the file.
+
+UPLOADING THE FILE
+ 11. Back in the Import modal, click "Upload File" or drag and drop your
+     filled Excel file.
+ 12. The system validates each row.
+ 13. A summary shows: Rows processed, Imported successfully, Errors.
+ 14. If there are errors, click "Download Error Report" to get an Excel file
+     listing which rows failed and why.
+ 15. Fix the errors in your original file and re-upload if needed.
+
+NOTES
+  - Duplicate entries (same file_number + service_code + date) are skipped.
+  - Successfully imported entries sync to the server immediately if online.
+
+================================================================================
+SECTION 13 — LIVE BUS TRACKING
+================================================================================
+
+PURPOSE
+  Track the real-time location of ROW vehicles (buses/vans) on a map.
+
+STEPS
+  1. Click "Live Tracking" or "Bus Tracking" in the sidebar.
+  2. A map loads showing the current location of active vehicles.
+  3. Each vehicle is represented by a marker on the map.
+  4. Click a marker to see vehicle details: Driver name, Route, Speed, Last
+     updated time.
+  5. The map auto-refreshes to show updated positions.
+
+NOTES
+  - Live tracking requires an internet connection.
+  - Only vehicles that have the tracking app active will appear on the map.
+  - Fleet and Admin roles can see all vehicles.
+  - This feature requires GPS devices installed in the vehicles.
+
+================================================================================
+SECTION 14 — ADD TRIP
+================================================================================
+
+PURPOSE
+  Log a new trip for a ROW vehicle, recording the route, date, driver, and
+  camp details.
+
+STEPS
+  1. Click "Add Trip" in the sidebar.
+  2. Fill in:
+       - Trip Date *
+       - Vehicle / Bus *
+       - Driver Name *
+       - Start Location *
+       - End Location / Camp Location *
+       - Departure Time
+       - Arrival Time
+       - Purpose / Route Notes
+  3. Click "Save Trip".
+  4. The trip is saved and visible in Trip History (Section 15).
+
+NOTES
+  - Only Fleet and Admin roles can add trips.
+  - Trip records are synced to the server when online.
+
+================================================================================
+SECTION 15 — TRIP HISTORY
+================================================================================
+
+PURPOSE
+  View all logged trips for all vehicles.
+
+STEPS
+  1. Click "Trip History" in the sidebar.
+  2. The list shows all trips with: Date, Vehicle, Driver, Route, Status.
+  3. Use the Date Range filter to narrow results.
+  4. Click a trip row to view its full details.
+  5. Export option (if available) downloads the trip log as Excel.
+
+================================================================================
+SECTION 16 — EXERCISE LIBRARY
+================================================================================
+
+PURPOSE
+  Browse a library of physiotherapy exercises that can be prescribed to
+  beneficiaries.
+
+STEPS
+  1. Click "Exercise Library" in the sidebar.
+  2. Browse exercises by category (e.g., Strengthening, Mobility, Breathing).
+  3. Use the Search bar to find exercises by name or condition.
+  4. Click an exercise card to view:
+       - Exercise name and description
+       - Step-by-step instructions
+       - Precautions / Contraindications
+       - Illustration or diagram (if available)
+  5. To assign to a beneficiary (if feature is available):
+       a. Click "Assign to Beneficiary" on the exercise detail view.
+       b. Search and select the beneficiary.
+       c. Set repetitions, sets, and frequency.
+       d. Click "Assign".
+
+NOTES
+  - The exercise library is read-only for Staff role. Admin can add exercises.
+  - Exercise content is available offline once loaded.
+
+================================================================================
+SECTION 17 — REPORTS & ANALYTICS
+================================================================================
+
+PURPOSE
+  Generate and view reports on beneficiaries, services, assessments, and trips.
+
+STEPS
+  1. Click "Reports" in the sidebar.
+  2. Select the Report Type from the dropdown:
+       - Beneficiary Summary
+       - Service Report
+       - Assessment Summary
+       - Camp-wise Report
+       - Provider-wise Report
+  3. Set the Date Range (From and To dates).
+  4. Apply any additional filters (Location, Condition, Provider).
+  5. Click "Generate Report".
+  6. The report displays in a table on screen.
+  7. Click "Export to Excel" or "Export to PDF" to download.
+
+AVAILABLE REPORTS
+  - Beneficiary Summary  : Total registrations, demographics, condition breakdown
+  - Service Report       : Services provided by date, location, provider
+  - Assessment Summary   : Assessments by condition type, follow-up counts
+  - Camp-wise Report     : Activity per camp location
+  - Provider-wise Report : Services broken down by service provider
+
+NOTES
+  - Reports require an internet connection to fetch complete data.
+  - Only Admin, Manager, and MIS roles can access the Reports page.
+  - Large date ranges may take a few seconds to load.
+
+================================================================================
+SECTION 18 — SYNC CONTROL
+================================================================================
+
+PURPOSE
+  Manually trigger synchronisation between local (offline) storage and the
+  server (Supabase). Also used to pull beneficiary data from the server to
+  your device.
+
+STEPS — PUSH (Upload pending records)
+  1. Click "Sync" or "Sync Control" in the sidebar.
+  2. The page shows counts of pending records by type:
+       - Beneficiaries pending sync
+       - Service entries pending sync
+       - Assessments pending sync
+  3. Click "Sync Now" to push all pending records to the server.
+  4. A progress indicator shows while sync runs.
+  5. After completion, counts should drop to 0 for successfully synced items.
+  6. "Sync Failed" items remain — check the error and fix before retrying.
+
+STEPS — PULL (Download beneficiaries from server)
+  1. On the Sync Control page, find the "Pull Beneficiaries" section.
+  2. Optionally set a Date Range to pull only specific registrations.
+  3. Click "Pull from Server".
+  4. A progress bar shows downloaded count vs. total.
+  5. New beneficiaries from other devices are now available locally.
+
+WHEN TO USE SYNC CONTROL
+  - After working offline for an extended period.
+  - Before attending a camp in an area with no internet (pull data first).
+  - When "Pending Sync" counts appear on the Dashboard.
+  - When Service History shows "Sync Failed" entries.
+
+AUTOMATIC SYNC
+  - The app automatically syncs when you come back online.
+  - Sync also runs after each Save action if you are online.
+
+================================================================================
+SECTION 19 — ADMIN CONTROL PANEL
+================================================================================
+
+PURPOSE
+  Manage users, roles, and system settings. Only accessible to Admin role.
+
+SECTIONS WITHIN THE CONTROL PANEL
+
+  A. USER MANAGEMENT
+     1. Click "Admin" in the sidebar.
+     2. Go to the "Users" tab.
+     3. You see a list of all registered users with their email and role.
+     4. To invite a new user:
+          a. Click "Invite User".
+          b. Enter their email address.
+          c. Select their Role (Admin, Manager, Staff, MIS, Fleet).
+          d. Click "Send Invite".
+          e. The user receives an email with a link to set their password.
+     5. To change a user's role:
+          a. Click the user's row.
+          b. Select the new role from the Role dropdown.
+          c. Click "Save".
+     6. To deactivate a user:
+          a. Click the user's row.
+          b. Click "Deactivate". They can no longer log in.
+
+  B. AUDIT LOG
+     1. Go to the "Audit Log" tab.
+     2. The log shows all actions performed in the system:
+          - User who performed the action
+          - Action type (Created, Updated, Deleted, Login, Sync)
+          - Record affected
+          - Timestamp
+     3. Use Date Range and User filters to narrow the log.
+     4. Export the log to Excel using the Export button.
+
+  C. SYSTEM SETTINGS
+     1. Go to the "Settings" tab within Admin.
+     2. Configure system-level parameters as required.
+
+================================================================================
+SECTION 20 — SETTINGS
+================================================================================
+
+PURPOSE
+  Manage your personal account settings and application preferences.
+
+STEPS
+  1. Click your profile icon or "Settings" at the bottom of the sidebar.
+  2. Options available:
+       - Change Password: Enter current password, then new password twice.
+       - Profile Info: Update your display name.
+       - Notification Preferences (if available).
+       - Theme: Light / Dark mode toggle (if available).
+  3. Click "Save" after making changes.
+
+================================================================================
+SECTION 21 — OFFLINE MODE GUIDE
+================================================================================
+
+PURPOSE
+  Understand how the ROW application works when there is no internet connection.
+
+WHAT WORKS OFFLINE
+  - Adding new beneficiaries
+  - Viewing beneficiaries already downloaded to your device
+  - Creating service entries
+  - Creating assessments (Initial, Clinical, Follow-up)
+  - Issuing tokens
+  - Viewing Service History (local records)
+  - Viewing Assessment History (local records)
+
+WHAT REQUIRES INTERNET
+  - Pulling new beneficiaries from the server (other devices' registrations)
+  - Viewing live bus tracking
+  - Generating reports
+  - Accessing the Admin Control Panel
+  - Real-time sync (data pushes happen when online)
+
+HOW OFFLINE STORAGE WORKS
+  - All data entered offline is stored in your browser's IndexedDB (Dexie).
+  - Records are tagged with sync_status = "pending".
+  - When internet is restored, the app automatically pushes pending records.
+  - Beneficiaries sync first (to get their file numbers), then service entries
+    and assessments sync after.
+
+SYNC STATUS GUIDE
+  - "Pending Sync" (yellow badge): Record saved locally, not yet on server.
+  - "Synced" (green badge)       : Record successfully saved on server.
+  - "Sync Failed" (red badge)    : Upload failed. Hover to see the error.
+                                   Go to Sync Control and click "Sync Now" to
+                                   retry.
+
+BEST PRACTICES FOR OFFLINE USE
+  1. Before going to a camp with no internet: open the app while online so the
+     latest beneficiary data downloads automatically.
+  2. Use Sync Control → Pull Beneficiaries if you need records from the server
+     that aren't on your device yet.
+  3. After returning to an area with internet, wait for the auto-sync to
+     complete (watch the pending count drop to 0 on the Dashboard).
+  4. If auto-sync doesn't start, go to Sync Control and click "Sync Now".
+  5. Check Service History after sync — verify no "Sync Failed" entries remain.
+
+================================================================================
+SECTION 22 — ROLE & PERMISSIONS REFERENCE
+================================================================================
+
+AVAILABLE ROLES
+  1. Admin   — Full access to all features including User Management and Audit Log.
+  2. Manager — Access to all operational features; cannot manage users.
+  3. Staff   — Can register beneficiaries, add assessments, add service entries.
+  4. MIS     — Read-only access to all data; can generate and export reports.
+  5. Fleet   — Access to bus tracking, trips; limited beneficiary/service access.
+
+PERMISSIONS MATRIX
+
+  Feature                    | Admin | Manager | Staff | MIS | Fleet
+  ---------------------------+-------+---------+-------+-----+------
+  Login                      |  YES  |   YES   |  YES  | YES |  YES
+  Dashboard                  |  YES  |   YES   |  YES  | YES |  YES
+  Calendar                   |  YES  |   YES   |  YES  | YES |  NO
+  Token Management           |  YES  |   YES   |  YES  | NO  |  NO
+  Add Beneficiary            |  YES  |   YES   |  YES  | NO  |  NO
+  Beneficiary List           |  YES  |   YES   |  YES  | YES |  NO
+  Beneficiary Profile        |  YES  |   YES   |  YES  | YES |  NO
+  Assessment Entry           |  YES  |   YES   |  YES  | NO  |  NO
+  Assessment History         |  YES  |   YES   |  YES  | YES |  NO
+  Service Entry              |  YES  |   YES   |  YES  | NO  |  NO
+  Service History            |  YES  |   YES   |  YES  | YES |  NO
+  Bulk Import Services       |  YES  |   YES   |  NO   | NO  |  NO
+  Live Bus Tracking          |  YES  |   YES   |  YES  | NO  | YES
+  Add Trip                   |  YES  |   YES   |  NO   | NO  | YES
+  Trip History               |  YES  |   YES   |  YES  | YES | YES
+  Exercise Library           |  YES  |   YES   |  YES  | YES |  NO
+  Reports & Analytics        |  YES  |   YES   |  NO   | YES |  NO
+  Sync Control               |  YES  |   YES   |  YES  | NO  |  NO
+  Admin Control Panel        |  YES  |   NO    |  NO   | NO  |  NO
+  Settings (own profile)     |  YES  |   YES   |  YES  | YES | YES
+
+ROLE ASSIGNMENT
+  - Roles are assigned by the Admin.
+  - A user's role cannot be changed by the user themselves.
+  - Contact your Admin if you need a different access level.
+
+================================================================================
+QUICK REFERENCE — COMMON TASKS
+================================================================================
+
+  TASK                              | WHERE TO GO
+  ----------------------------------+--------------------------------------------
+  Register a new patient            | Add Beneficiary (Section 5)
+  Find an existing patient          | Beneficiary List → Search (Section 6)
+  Record a physiotherapy session    | Service Entry (Section 10)
+  Enter a clinical assessment       | Assessment Entry (Section 8)
+  Check sync status                 | Service History (Section 11) or Dashboard
+  Force sync now                    | Sync Control → Sync Now (Section 18)
+  Get data from server              | Sync Control → Pull Beneficiaries (Section 18)
+  Upload many service records       | Bulk Import Services (Section 12)
+  View camp activity report         | Reports → Camp-wise Report (Section 17)
+  Add a new staff member            | Admin → Users → Invite User (Section 19)
+  Check who did what in the system  | Admin → Audit Log (Section 19)
+
+================================================================================
+SUPPORT & FEEDBACK
+================================================================================
+
+  For technical issues or feedback, contact:
+    Email : ai@apd-india.org
+    Org   : APD India — Action for Ability Development and Inclusion
+
+================================================================================
+END OF ROW USER MANUAL
+================================================================================
