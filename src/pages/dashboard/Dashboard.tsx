@@ -16,6 +16,7 @@ import { BeneficiaryRegistrationChart } from '@/components/dashboard/Beneficiary
 import { ServiceDashboardChart } from '@/components/dashboard/ServiceDashboardChart';
 import { AssessmentVsReassessmentChart } from '@/components/dashboard/AssessmentVsReassessmentChart';
 import { DonorBreakdownTable } from '@/components/dashboard/DonorBreakdownTable';
+import { GenderBreakdownChart } from '@/components/dashboard/GenderBreakdownChart';
 import type { DonorBreakdownRow } from '@/components/dashboard/DonorBreakdownTable';
 import type { TimeFrame, ChartFilter } from '@/types/dashboard';
 
@@ -394,6 +395,7 @@ export function DashboardPage() {
 
                 {/* Side Panel: Donor Breakdown + Scheduled Camps */}
                 <div className="space-y-4 md:space-y-6">
+                    <GenderBreakdownChart filter={globalFilter} />
                     <DonorBreakdownTable rows={donorBreakdown} isLoading={isLoading} selectedDonor={donorFilter} />
 
                     <Card>

@@ -93,6 +93,51 @@ export const fetchBeneficiaryStats = async (
     }
 };
 
+export interface GenderBreakdown {
+    male: number;
+    female: number;
+    other: number;
+    total: number;
+}
+
+export const fetchGenderBreakdown = async (filter: ChartFilter): Promise<GenderBreakdown> => {
+    try {
+        let totalQuery = supabase.from('beneficiaries').select('*', { count: 'exact', head: true });
+        if (filter.startDate) totalQuery = totalQuery.gte('date_of_registration', filter.startDate);
+        if (filter.endDate) totalQuery = totalQuery.lte('date_of_registration', filter.endDate);
+
+        let maleQuery = supabase.from('beneficiaries').select('*', { count: 'exact', head: true }).eq('gender', 'Male');
+        if (filter.startDate) maleQuery = maleQuery.gte('date_of_registration', filter.startDate);
+        if (filter.endDate) maleQuery = maleQuery.lte('date_of_registration', filter.endDate);
+
+        let femaleQuery = supabase.from('beneficiaries').select('*', { count: 'exact', head: true }).eq('gender', 'Female');
+        if (filter.startDate) femaleQuery = femaleQuery.gte('date_of_registration', filter.startDate);
+        if (filter.endDate) femaleQuery = femaleQuery.lte('date_of_registration', filter.endDate);
+
+        const [
+            { count: total, error: totalErr },
+            { count: male, error: maleErr },
+            { count: female, error: femaleErr },
+        ] = await Promise.all([totalQuery, maleQuery, femaleQuery]);
+
+        if (totalErr) throw totalErr;
+        if (maleErr) throw maleErr;
+        if (femaleErr) throw femaleErr;
+
+        const totalCount = total || 0;
+        const maleCount = male || 0;
+        const femaleCount = female || 0;
+        // Anything not exactly 'Male'/'Female' (literal 'Other' selection, or blank/legacy import
+        // values) is folded into a single 'Other' bucket rather than a query per possible value.
+        const otherCount = Math.max(0, totalCount - maleCount - femaleCount);
+
+        return { male: maleCount, female: femaleCount, other: otherCount, total: totalCount };
+    } catch (error) {
+        console.error('Error fetching gender breakdown:', error);
+        return { male: 0, female: 0, other: 0, total: 0 };
+    }
+};
+
 export const fetchUniqueLocations = async (): Promise<string[]> => {
     try {
         const { data, error } = await supabase
