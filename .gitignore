@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+env
 
 # Build and Lint artifacts
 build_log.txt

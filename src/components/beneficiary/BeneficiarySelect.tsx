@@ -17,9 +17,10 @@ interface BeneficiarySelectProps {
     selectedId?: string;
     selectedFileNumber?: string | null;
     placeholder?: string;
+    required?: boolean;
 }
 
-export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, placeholder = "Select Beneficiary (File No / Name)" }: BeneficiarySelectProps) {
+export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, placeholder = "Select Beneficiary (File No / Name)", required = false }: BeneficiarySelectProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [results, setResults] = useState<Beneficiary[]>([]);
@@ -177,7 +178,7 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
     return (
         <div className="relative w-full" ref={dropdownRef}>
             <label className="text-sm font-semibold text-text-main mb-1.5 block">
-                {placeholder}
+                {placeholder}{required && <span className="text-red-500"> *</span>}
             </label>
             <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">

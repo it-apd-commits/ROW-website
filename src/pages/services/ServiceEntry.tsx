@@ -146,6 +146,7 @@ export function ServiceEntryPage() {
         if (!formData.status) { setError('Status is mandatory'); return false; }
         if (!formData.schedule_date) { setError('Schedule Date is mandatory'); return false; }
         if (!formData.start_date) { setError('Start Date is mandatory'); return false; }
+        if (!formData.end_date) { setError('End Date is mandatory'); return false; }
         if (!formData.location_code) { setError('Location Code is mandatory'); return false; }
         if (!formData.service_provider_code) { setError('Service Provider Code is mandatory'); return false; }
         if (!formData.mode_of_service) { setError('Mode of Service is mandatory'); return false; }
@@ -166,11 +167,6 @@ export function ServiceEntryPage() {
                 if (codes.has(r.code)) { setError(`Service "${r.code}" is selected more than once`); return false; }
                 codes.add(r.code);
             }
-        }
-
-        if (formData.status === 'AVAILED' && !formData.end_date) {
-            setError('End Date is mandatory when status is AVAILED');
-            return false;
         }
 
         if (formData.start_date && formData.schedule_date && formData.start_date < formData.schedule_date) {
@@ -316,6 +312,7 @@ export function ServiceEntryPage() {
                                 <div className="md:col-span-1">
                                     <BeneficiarySelect
                                         placeholder="Search Beneficiary (Name / File No)"
+                                        required
                                         onSelect={(b) => {
                                             handleChange('file_number', b.file_number ?? b.id);
                                             setPreselectedBeneficiaryId(null);
@@ -345,12 +342,12 @@ export function ServiceEntryPage() {
                                     required
                                 />
                                 <Input
-                                    label={`End Date ${formData.status === 'AVAILED' ? '*' : '(Optional)'}`}
+                                    label="End Date *"
                                     name="end_date"
                                     type="date"
                                     value={formData.end_date || ''}
                                     onChange={(e) => handleChange('end_date', e.target.value)}
-                                    required={formData.status === 'AVAILED'}
+                                    required
                                 />
                                 <Select
                                     label="Location Code"
@@ -663,7 +660,7 @@ export function ServiceEntryPage() {
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Validation Rules</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
-                        • Status 'AVAILED' requires an End Date.<br />
+                        • End Date is mandatory for every entry.<br />
                         • Start Date must be on or after the Schedule Date.<br />
                         • Mode of Service defaults to 'ROW' but remains editable.
                     </p>
