@@ -5,7 +5,7 @@ import { Button } from '@/components/common/Button';
 import { Loader } from '@/components/common/Loader';
 import { assessmentService } from '@/services/assessmentService';
 import { exerciseService } from '@/services/exerciseService';
-import { getVASCategory } from '@/utils/assessmentLogic';
+import { getVASCategory, isDisabilityCondition } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import type { PatientRecommendedExercise } from '@/types/exercise';
 import {
@@ -192,7 +192,7 @@ export function AssessmentViewPage() {
                         )}
 
                         {/* Disability */}
-                        {condition === 'Disability' && (
+                        {isDisabilityCondition(condition) && (
                             <>
                                 <Field label="Disability Type" value={clinical.disability_type} />
                                 <Field label="Walking / Wheelchair" value={clinical.fim_walking_wheelchair} />
@@ -272,7 +272,7 @@ export function AssessmentViewPage() {
                                     {condition === 'Pulmonary Condition' && (
                                         <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Dyspnea (mMRC)</th>
                                     )}
-                                    {condition === 'Disability' && (
+                                    {isDisabilityCondition(condition) && (
                                         <>
                                             <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Walk/W'chair</th>
                                             <th className="text-left py-2 px-3 font-bold text-[10px] uppercase text-gray-400 tracking-wider">Stairs</th>
@@ -317,7 +317,7 @@ export function AssessmentViewPage() {
                                         {condition === 'Pulmonary Condition' && (
                                             <td className="py-3 px-3">{clinical.dyspnea_mrmc || '—'}</td>
                                         )}
-                                        {condition === 'Disability' && (
+                                        {isDisabilityCondition(condition) && (
                                             <>
                                                 <td className="py-3 px-3">{clinical.fim_walking_wheelchair || '—'}</td>
                                                 <td className="py-3 px-3">{clinical.fim_stairs || '—'}</td>
@@ -362,7 +362,7 @@ export function AssessmentViewPage() {
                                         {condition === 'Pulmonary Condition' && (
                                             <td className="py-3 px-3">{row.dyspnea_mrmc || '—'}</td>
                                         )}
-                                        {condition === 'Disability' && (
+                                        {isDisabilityCondition(condition) && (
                                             <>
                                                 <td className="py-3 px-3">{row.fim_walking_wheelchair || '—'}</td>
                                                 <td className="py-3 px-3">{row.fim_stairs || '—'}</td>
@@ -409,7 +409,7 @@ export function AssessmentViewPage() {
                         { label: 'Dyspnea (mMRC)', baseline: clinical.dyspnea_mrmc, current: latest.dyspnea_mrmc, improved: null },
                     );
                 }
-                if (condition === 'Disability') {
+                if (isDisabilityCondition(condition)) {
                     outcomes.push(
                         { label: 'Walking / Wheelchair', baseline: clinical.fim_walking_wheelchair, current: latest.fim_walking_wheelchair, improved: null },
                         { label: 'Stairs', baseline: clinical.fim_stairs, current: latest.fim_stairs, improved: null },

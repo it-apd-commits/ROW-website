@@ -1,6 +1,12 @@
 import { supabase } from '@/lib/supabase';
 import { getScale } from '@/config/outcomeScales';
+import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
+
+// FIM scales are configured with condition: 'Disability', but clinical_assessment
+// rows may have been saved with a specific disability sub-type as their condition
+// (see isDisabilityCondition) — match all of them, not just the literal 'Disability'.
+const DISABILITY_CONDITION_VALUES = ['Disability', ...DISABILITY_TYPES];
 
 interface BaselineRecord {
     patient_id: string;
@@ -143,7 +149,9 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
                     .in('patient_id', idBatch)
                     .order('created_at', { ascending: true });
 
-                if (scale.condition) {
+                if (scale.condition === 'Disability') {
+                    clinicalQuery = clinicalQuery.in('condition', DISABILITY_CONDITION_VALUES);
+                } else if (scale.condition) {
                     clinicalQuery = clinicalQuery.eq('condition', scale.condition);
                 }
 

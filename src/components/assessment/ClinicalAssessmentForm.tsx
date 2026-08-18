@@ -4,7 +4,7 @@ import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { Button } from '@/components/common/Button';
 import { DROPDOWNS, toOptions, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS, FIM_DESCRIPTIONS } from '@/constants/assessmentDropdowns';
-import { getVASCategory } from '@/utils/assessmentLogic';
+import { getVASCategory, isDisabilityCondition } from '@/utils/assessmentLogic';
 import type { ClinicalAssessment, InitialAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
 import { Activity, Save, Loader2, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff } from 'lucide-react';
@@ -185,7 +185,7 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
             if (!data.pulmonary_symptoms?.length) e.pulmonary_symptoms = 'Select at least one symptom';
             if (!data.dyspnea_mrmc) e.dyspnea_mrmc = 'Dyspnea is required';
         }
-        if (condition === 'Disability') {
+        if (isDisabilityCondition(condition)) {
             if (!data.disability_type) e.disability_type = 'Disability type is required';
             for (const item of [...FIM_LOCOMOTION_ITEMS, ...FIM_MOBILITY_ITEMS]) {
                 if (!data[item.key as keyof typeof data]) e[item.key] = `${item.label} is required`;
@@ -252,17 +252,17 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
                 pulmonary_symptoms: condition === 'Pulmonary Condition' ? data.pulmonary_symptoms || null : null,
                 dyspnea_mrmc: condition === 'Pulmonary Condition' ? data.dyspnea_mrmc || null : null,
                 // Disability
-                disability_type: condition === 'Disability' ? data.disability_type || null : null,
+                disability_type: isDisabilityCondition(condition) ? data.disability_type || null : null,
                 // Kept as-is (not editable here anymore) so re-saving an older record
                 // doesn't blank out its legacy value — new records simply leave these null.
                 fim_locomotion: data.fim_locomotion || null,
                 fim_mobility: data.fim_mobility || null,
-                fim_walking_wheelchair: condition === 'Disability' ? data.fim_walking_wheelchair || null : null,
-                fim_stairs: condition === 'Disability' ? data.fim_stairs || null : null,
-                fim_community_access: condition === 'Disability' ? data.fim_community_access || null : null,
-                fim_bed_chair_transfer: condition === 'Disability' ? data.fim_bed_chair_transfer || null : null,
-                fim_toilet_transfer: condition === 'Disability' ? data.fim_toilet_transfer || null : null,
-                fim_tub_shower_transfer: condition === 'Disability' ? data.fim_tub_shower_transfer || null : null,
+                fim_walking_wheelchair: isDisabilityCondition(condition) ? data.fim_walking_wheelchair || null : null,
+                fim_stairs: isDisabilityCondition(condition) ? data.fim_stairs || null : null,
+                fim_community_access: isDisabilityCondition(condition) ? data.fim_community_access || null : null,
+                fim_bed_chair_transfer: isDisabilityCondition(condition) ? data.fim_bed_chair_transfer || null : null,
+                fim_toilet_transfer: isDisabilityCondition(condition) ? data.fim_toilet_transfer || null : null,
+                fim_tub_shower_transfer: isDisabilityCondition(condition) ? data.fim_tub_shower_transfer || null : null,
                 // Post-Op
                 postop_surgery_type: condition === 'Post Operative Condition' ? data.postop_surgery_type || null : null,
                 weight_bearing_status: condition === 'Post Operative Condition' ? data.weight_bearing_status || null : null,
@@ -520,7 +520,7 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
             )}
 
             {/* Disability */}
-            {condition === 'Disability' && (
+            {isDisabilityCondition(condition) && (
                 <Card>
                     <h3 className="font-semibold text-text-main mb-4">Disability Assessment</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,7 +1,17 @@
+import { DISABILITY_TYPES } from './beneficiaryDropdowns';
+
+// Base condition categories — each drives its own clinical section in
+// ClinicalAssessmentForm/FollowUpAssessmentForm (see isDisabilityCondition
+// in utils/assessmentLogic.ts for how the disability sub-types below plug
+// into the 'Disability' section).
+const BASE_CONDITIONS = ['Neuro Muscular Painful Condition', 'Neurological Condition', 'Pulmonary Condition', 'Post Operative Condition', 'Disability', 'Amputation', 'Early Intervention Assessment'];
+
 export const DROPDOWNS = {
     Gender: ['Male', 'Female', 'Other'],
 
-    Condition: ['Neuro Muscular Painful Condition', 'Neurological Condition', 'Pulmonary Condition', 'Post Operative Condition', 'Disability', 'Amputation', 'Early Intervention Assessment'],
+    // Disability sub-types from the Beneficiary "Disability Type" list are appended
+    // here so they can be picked directly as a Primary Condition, skipping duplicates.
+    Condition: [...BASE_CONDITIONS, ...DISABILITY_TYPES.filter(d => !BASE_CONDITIONS.includes(d))],
 
     ChiefComplaint: [
         'Joint pain', 'Back pain', 'Neck pain', 'Post injury pain',

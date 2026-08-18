@@ -1,3 +1,14 @@
+import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
+
+const DISABILITY_TYPE_SET = new Set<string>(DISABILITY_TYPES);
+
+// Primary Condition can be 'Disability' or one of the specific disability
+// sub-types (Cerebral Palsy, Down Syndrome, etc.) — both should show the
+// same 'Disability' clinical section (FIM fields, disability type, etc.).
+export function isDisabilityCondition(condition: string): boolean {
+    return condition === 'Disability' || DISABILITY_TYPE_SET.has(condition);
+}
+
 export function getVASCategory(score: number): string {
     if (score === 0) return 'No Pain';
     if (score <= 3) return 'Mild Pain (1–3)';

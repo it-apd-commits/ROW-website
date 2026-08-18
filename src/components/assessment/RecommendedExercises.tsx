@@ -14,6 +14,7 @@ import {
     Printer,
 } from 'lucide-react';
 import { EXERCISE_CATEGORIES } from '@/constants/exerciseConstants';
+import { isDisabilityCondition } from '@/utils/assessmentLogic';
 
 // Remembers whether the exercise sheet is enabled, so it stays off across visits
 // and the user can scroll straight to Core Service Details below.
@@ -66,7 +67,7 @@ export function RecommendedExercises({ patientId, patientName, condition }: Prop
         setLoading(true);
         try {
             // Map condition name and load exercises
-            const mappedCondition = CONDITION_MAP[condition] || condition;
+            const mappedCondition = CONDITION_MAP[condition] || (isDisabilityCondition(condition) ? 'Disability' : condition);
             let available = await exerciseService.getByCondition(mappedCondition);
 
             // If no exercises found for condition, load all active exercises

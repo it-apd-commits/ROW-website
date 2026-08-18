@@ -5,7 +5,7 @@ import { Select } from '@/components/common/Select';
 import { Button } from '@/components/common/Button';
 import { Loader } from '@/components/common/Loader';
 import { DROPDOWNS, toOptions, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS, FIM_DESCRIPTIONS } from '@/constants/assessmentDropdowns';
-import { getVASCategory } from '@/utils/assessmentLogic';
+import { getVASCategory, isDisabilityCondition } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
 import { auditService } from '@/services/auditService';
@@ -215,7 +215,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         if (condition === 'Pulmonary Condition') {
             if (!data.dyspnea_mrmc) e.dyspnea_mrmc = 'Dyspnea is required';
         }
-        if (condition === 'Disability') {
+        if (isDisabilityCondition(condition)) {
             for (const item of [...FIM_LOCOMOTION_ITEMS, ...FIM_MOBILITY_ITEMS]) {
                 if (!data[item.key as keyof typeof data]) e[item.key] = `${item.label} is required`;
             }
@@ -259,12 +259,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         // doesn't blank out its legacy value — new sessions simply leave these null.
         fim_locomotion: data.fim_locomotion || null,
         fim_mobility: data.fim_mobility || null,
-        fim_walking_wheelchair: condition === 'Disability' ? data.fim_walking_wheelchair || null : null,
-        fim_stairs: condition === 'Disability' ? data.fim_stairs || null : null,
-        fim_community_access: condition === 'Disability' ? data.fim_community_access || null : null,
-        fim_bed_chair_transfer: condition === 'Disability' ? data.fim_bed_chair_transfer || null : null,
-        fim_toilet_transfer: condition === 'Disability' ? data.fim_toilet_transfer || null : null,
-        fim_tub_shower_transfer: condition === 'Disability' ? data.fim_tub_shower_transfer || null : null,
+        fim_walking_wheelchair: isDisabilityCondition(condition) ? data.fim_walking_wheelchair || null : null,
+        fim_stairs: isDisabilityCondition(condition) ? data.fim_stairs || null : null,
+        fim_community_access: isDisabilityCondition(condition) ? data.fim_community_access || null : null,
+        fim_bed_chair_transfer: isDisabilityCondition(condition) ? data.fim_bed_chair_transfer || null : null,
+        fim_toilet_transfer: isDisabilityCondition(condition) ? data.fim_toilet_transfer || null : null,
+        fim_tub_shower_transfer: isDisabilityCondition(condition) ? data.fim_tub_shower_transfer || null : null,
         amp_level: condition === 'Amputation' ? data.amp_level || null : null,
         // Early Intervention
         ei_head_control_status: isEI ? data.ei_head_control_status || null : null,
@@ -403,7 +403,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                     {condition === 'Pulmonary Condition' && (
                                         <th className="text-left py-2 px-3 font-medium text-text-muted">Dyspnea (mMRC)</th>
                                     )}
-                                    {condition === 'Disability' && (
+                                    {isDisabilityCondition(condition) && (
                                         <>
                                             <th className="text-left py-2 px-3 font-medium text-text-muted">Walk/W'chair</th>
                                             <th className="text-left py-2 px-3 font-medium text-text-muted">Stairs</th>
@@ -463,7 +463,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                         {condition === 'Pulmonary Condition' && (
                                             <td className="py-2 px-3">{clinicalData.dyspnea_mrmc || '—'}</td>
                                         )}
-                                        {condition === 'Disability' && (
+                                        {isDisabilityCondition(condition) && (
                                             <>
                                                 <td className="py-2 px-3">{clinicalData.fim_walking_wheelchair || '—'}</td>
                                                 <td className="py-2 px-3">{clinicalData.fim_stairs || '—'}</td>
@@ -532,7 +532,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                         {condition === 'Pulmonary Condition' && (
                                             <td className="py-2 px-3">{row.dyspnea_mrmc || '—'}</td>
                                         )}
-                                        {condition === 'Disability' && (
+                                        {isDisabilityCondition(condition) && (
                                             <>
                                                 <td className="py-2 px-3">{row.fim_walking_wheelchair || '—'}</td>
                                                 <td className="py-2 px-3">{row.fim_stairs || '—'}</td>
@@ -733,7 +733,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                         </Card>
                     )}
 
-                    {condition === 'Disability' && (
+                    {isDisabilityCondition(condition) && (
                         <Card>
                             <h3 className="font-semibold text-text-main mb-4">Progress — Disability</h3>
 
