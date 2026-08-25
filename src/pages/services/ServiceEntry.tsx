@@ -406,7 +406,7 @@ export function ServiceEntryPage() {
                                         required
                                         options={[
                                             { value: '', label: '-- Select Service --' },
-                                            ...SERVICE_MASTER.map(s => ({ value: s.code, label: `${s.code} - ${s.name}` }))
+                                            ...SERVICE_MASTER.map(s => ({ value: s.code, label: s.name }))
                                         ]}
                                     />
                                     <div className="space-y-1.5 text-sm font-medium text-text-main">
@@ -461,7 +461,7 @@ export function ServiceEntryPage() {
                                                         { value: '', label: '-- Select Service --' },
                                                         ...SERVICE_MASTER
                                                             .filter(s => !usedCodes.has(s.code))
-                                                            .map(s => ({ value: s.code, label: `${s.code} - ${s.name}` }))
+                                                            .map(s => ({ value: s.code, label: s.name }))
                                                     ]}
                                                 />
                                                 <div className="space-y-1.5 text-sm font-medium text-text-main">

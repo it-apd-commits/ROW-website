@@ -40,7 +40,7 @@ export const downloadServiceImportTemplate = async () => {
         { header: 'START_DATE',            key: 'start_date',            width: 16, required: true,  hint: 'DD-MM-YYYY' },
         { header: 'END_DATE',              key: 'end_date',              width: 22, required: false, hint: 'DD-MM-YYYY  (required if STATUS=AVAILED)' },
         { header: 'LOCATION_CODE',         key: 'location_code',         width: 16, required: true,  hint: LOCATION_MASTER.map(l => l.code).join(' / ') },
-        { header: 'SERVICE_CODE',          key: 'service_code',          width: 16, required: true,  hint: SERVICE_MASTER.map(s => s.code).join(' / ') },
+        { header: 'SERVICE_CODE',          key: 'service_code',          width: 16, required: true,  hint: 'Pick from dropdown — full list on "Reference" sheet' },
         { header: 'SERVICE_PROVIDER_CODE', key: 'service_provider_code', width: 24, required: true,  hint: 'Provider name or code' },
         { header: 'MODE_OF_SERVICE',       key: 'mode_of_service',       width: 18, required: true,  hint: MODE_OF_SERVICE.map(m => m.code).join(' / ') },
         { header: 'FOLLOW_UP_NUMBER',      key: 'follow_up_number',      width: 22, required: true,  hint: 'Initial Visit / Follow Up 1 / 2 / 3 / 4' },
@@ -99,7 +99,7 @@ export const downloadServiceImportTemplate = async () => {
     sampleRow.height = 22;
     const sampleValues = [
         'ROW-001', 'AVAILED', todayStr, todayStr, todayStr,
-        'MCB', 'PT-M', 'Dr. Rajesh Kumar', 'ROW', 'Initial Visit', '45',
+        'MCB', 'General Screening', 'Dr. Rajesh Kumar', 'ROW', 'Initial Visit', '45',
         'Sample session note', '', '', '', '', '', '', '',
     ];
     sampleValues.forEach((val, idx) => {
@@ -112,11 +112,21 @@ export const downloadServiceImportTemplate = async () => {
     });
     sampleRow.getCell(1).note = 'Sample row — delete this row before uploading your data';
 
+    // Service names are long and there are many of them — an inline Excel list
+    // formula ("a,b,c,...") is capped at 255 characters, which this list blows
+    // past. Put the options on a hidden sheet instead and reference that range.
+    const listsSheet = workbook.addWorksheet('Lists');
+    listsSheet.state = 'veryHidden';
+    SERVICE_MASTER.forEach((s, i) => {
+        listsSheet.getCell(i + 1, 1).value = s.code;
+    });
+    const serviceListRange = `Lists!$A$1:$A$${SERVICE_MASTER.length}`;
+
     // Dropdown validation for rows 4–500
     for (let r = 4; r <= 500; r++) {
         ws.getCell(r, 2).dataValidation  = { type: 'list', allowBlank: true, formulae: ['"SCHEDULED,AVAILED"'] };
         ws.getCell(r, 6).dataValidation  = { type: 'list', allowBlank: true, formulae: [`"${LOCATION_MASTER.map(l => l.code).join(',')}"`] };
-        ws.getCell(r, 7).dataValidation  = { type: 'list', allowBlank: true, formulae: [`"${SERVICE_MASTER.map(s => s.code).join(',')}"`] };
+        ws.getCell(r, 7).dataValidation  = { type: 'list', allowBlank: true, formulae: [serviceListRange] };
         ws.getCell(r, 9).dataValidation  = { type: 'list', allowBlank: true, formulae: [`"${MODE_OF_SERVICE.map(m => m.code).join(',')}"`] };
         ws.getCell(r, 10).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${FOLLOW_UP_OPTIONS.join(',')}"`] };
     }

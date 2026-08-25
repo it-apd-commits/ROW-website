@@ -214,7 +214,9 @@ export const importServices = async (file: File): Promise<ServiceImportSummary> 
     };
 
     const VALID_LOCATIONS = new Set(LOCATION_MASTER.map(l => l.code));
-    const VALID_SERVICES  = new Set(SERVICE_MASTER.map(s => s.code));
+    // Service codes are full names (mixed case) now, not short codes — match
+    // case-insensitively but store the canonical master-list casing.
+    const VALID_SERVICES  = new Map(SERVICE_MASTER.map(s => [s.code.toUpperCase(), s.code]));
     const VALID_MODES     = new Set(MODE_MASTER.map(m => m.code));
     const VALID_FOLLOWUPS = new Set(['Initial Visit', 'Follow Up 1', 'Follow Up 2', 'Follow Up 3', 'Follow Up 4']);
 
@@ -288,10 +290,10 @@ export const importServices = async (file: File): Promise<ServiceImportSummary> 
         else if (!VALID_LOCATIONS.has(locUpper))
             fail(`Invalid LOCATION_CODE "${raw.location_code}". Valid: ${[...VALID_LOCATIONS].join(', ')}`);
 
-        const svcUpper = raw.service_code.toUpperCase();
+        const svcCanonical = VALID_SERVICES.get(raw.service_code.toUpperCase());
         if (!raw.service_code) fail('SERVICE_CODE is required');
-        else if (!VALID_SERVICES.has(svcUpper))
-            fail(`Invalid SERVICE_CODE "${raw.service_code}". Valid: ${[...VALID_SERVICES].join(', ')}`);
+        else if (!svcCanonical)
+            fail(`Invalid SERVICE_CODE "${raw.service_code}". Valid: ${[...VALID_SERVICES.values()].join(', ')}`);
 
         if (!raw.service_provider_code) fail('SERVICE_PROVIDER_CODE is required');
 
@@ -351,7 +353,7 @@ export const importServices = async (file: File): Promise<ServiceImportSummary> 
                 start_date:            startDate!,
                 end_date:              endDate,
                 location_code:         locUpper,
-                service_code:          svcUpper,
+                service_code:          svcCanonical!,
                 service_provider_code: raw.service_provider_code,
                 recommendation:        raw.recommendation || null,
                 contribution:          raw.contribution ? parseFloat(raw.contribution) : null,
