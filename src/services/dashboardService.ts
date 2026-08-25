@@ -1,10 +1,16 @@
 import { supabase } from '@/lib/supabase';
 import type { BeneficiaryChartData, BusCoverageData, ChartFilter, TimeFrame } from '@/types/dashboard';
 
+export const UNSPECIFIED_DONOR = 'Unspecified';
+export const normalizeDonor = (d: string | null | undefined): string => (d && d.trim() ? d.trim() : UNSPECIFIED_DONOR);
+
+// True when a specific donor has been chosen (i.e. the filter isn't 'all'/unset).
+const isDonorScoped = (filter: ChartFilter): boolean => !!filter.donor && filter.donor !== 'all';
+
 // --- Helper for pagination ---
 // Supabase caps selects at 1000 rows by default; page through .range()
 // so stats aren't silently truncated on large tables.
-const fetchAllRows = async <T>(
+export const fetchAllRows = async <T>(
     buildQuery: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }> }
 ): Promise<T[]> => {
     const PAGE_SIZE = 1000;
@@ -17,6 +23,21 @@ const fetchAllRows = async <T>(
         if (page.length < PAGE_SIZE) break;
     }
     return rows;
+};
+
+// Maps a beneficiary's file_number AND id to its normalized donor, so a
+// service_entries.file_number holding either value still resolves.
+const fetchDonorByKey = async (): Promise<Map<string, string>> => {
+    const rows = await fetchAllRows<{ id: string; file_number: string | null; donor: string | null }>(() =>
+        supabase.from('beneficiaries').select('id, file_number, donor')
+    );
+    const map = new Map<string, string>();
+    rows.forEach((b) => {
+        const d = normalizeDonor(b.donor);
+        if (b.file_number) map.set(b.file_number, d);
+        if (b.id) map.set(b.id, d);
+    });
+    return map;
 };
 
 // --- Helper for aggregation ---
@@ -49,10 +70,10 @@ export const fetchBeneficiaryStats = async (
     filter: ChartFilter
 ): Promise<BeneficiaryChartData[]> => {
     try {
-        const data = await fetchAllRows<{ id: string; date_of_registration: string | null; district: string | null; city: string | null }>(() => {
+        const data = await fetchAllRows<{ id: string; date_of_registration: string | null; district: string | null; city: string | null; donor: string | null }>(() => {
             let query = supabase
                 .from('beneficiaries')
-                .select('id, date_of_registration, district, city');
+                .select('id, date_of_registration, district, city, donor');
 
             if (filter.startDate) {
                 query = query.gte('date_of_registration', filter.startDate);
@@ -68,11 +89,14 @@ export const fetchBeneficiaryStats = async (
             return query;
         });
 
+        const donorScoped = isDonorScoped(filter);
+
         // Aggregate Data
         const groupedData: Record<string, number> = {};
 
         data.forEach((item) => {
             if (!item.date_of_registration) return;
+            if (donorScoped && normalizeDonor(item.donor) !== filter.donor) return;
             const key = formatDateKey(item.date_of_registration, timeframe);
             groupedData[key] = (groupedData[key] || 0) + 1;
         });
@@ -102,31 +126,25 @@ export interface GenderBreakdown {
 
 export const fetchGenderBreakdown = async (filter: ChartFilter): Promise<GenderBreakdown> => {
     try {
-        let totalQuery = supabase.from('beneficiaries').select('*', { count: 'exact', head: true });
-        if (filter.startDate) totalQuery = totalQuery.gte('date_of_registration', filter.startDate);
-        if (filter.endDate) totalQuery = totalQuery.lte('date_of_registration', filter.endDate);
+        const rows = await fetchAllRows<{ gender: string | null; donor: string | null; date_of_registration: string | null }>(() => {
+            let query = supabase.from('beneficiaries').select('gender, donor, date_of_registration');
+            if (filter.startDate) query = query.gte('date_of_registration', filter.startDate);
+            if (filter.endDate) query = query.lte('date_of_registration', filter.endDate);
+            return query;
+        });
 
-        let maleQuery = supabase.from('beneficiaries').select('*', { count: 'exact', head: true }).eq('gender', 'Male');
-        if (filter.startDate) maleQuery = maleQuery.gte('date_of_registration', filter.startDate);
-        if (filter.endDate) maleQuery = maleQuery.lte('date_of_registration', filter.endDate);
+        const donorScoped = isDonorScoped(filter);
+        let totalCount = 0;
+        let maleCount = 0;
+        let femaleCount = 0;
 
-        let femaleQuery = supabase.from('beneficiaries').select('*', { count: 'exact', head: true }).eq('gender', 'Female');
-        if (filter.startDate) femaleQuery = femaleQuery.gte('date_of_registration', filter.startDate);
-        if (filter.endDate) femaleQuery = femaleQuery.lte('date_of_registration', filter.endDate);
+        rows.forEach((r) => {
+            if (donorScoped && normalizeDonor(r.donor) !== filter.donor) return;
+            totalCount++;
+            if (r.gender === 'Male') maleCount++;
+            else if (r.gender === 'Female') femaleCount++;
+        });
 
-        const [
-            { count: total, error: totalErr },
-            { count: male, error: maleErr },
-            { count: female, error: femaleErr },
-        ] = await Promise.all([totalQuery, maleQuery, femaleQuery]);
-
-        if (totalErr) throw totalErr;
-        if (maleErr) throw maleErr;
-        if (femaleErr) throw femaleErr;
-
-        const totalCount = total || 0;
-        const maleCount = male || 0;
-        const femaleCount = female || 0;
         // Anything not exactly 'Male'/'Female' (literal 'Other' selection, or blank/legacy import
         // values) is folded into a single 'Other' bucket rather than a query per possible value.
         const otherCount = Math.max(0, totalCount - maleCount - femaleCount);
@@ -252,21 +270,29 @@ export const fetchServiceStats = async (
     filter: ChartFilter
 ): Promise<ServiceChartData[]> => {
     try {
-        const data = await fetchAllRows<{ id: string; schedule_date: string | null }>(() => {
-            let query = supabase
-                .from('service_entries')
-                .select('id, schedule_date');
+        const donorScoped = isDonorScoped(filter);
+        const [data, donorByKey] = await Promise.all([
+            fetchAllRows<{ id: string; schedule_date: string | null; file_number: string | null }>(() => {
+                let query = supabase
+                    .from('service_entries')
+                    .select('id, schedule_date, file_number');
 
-            if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
-            if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
+                if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
+                if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
 
-            return query;
-        });
+                return query;
+            }),
+            donorScoped ? fetchDonorByKey() : Promise.resolve(null),
+        ]);
 
         const groupedData: Record<string, number> = {};
 
         data.forEach((item) => {
             if (!item.schedule_date) return;
+            if (donorScoped) {
+                const d = (item.file_number && donorByKey!.get(item.file_number)) || 'Unknown';
+                if (d !== filter.donor) return;
+            }
             const key = formatDateKey(item.schedule_date, timeframe);
             groupedData[key] = (groupedData[key] || 0) + 1;
         });
@@ -290,16 +316,24 @@ export const fetchServiceSummary = async (
     filter: ChartFilter
 ): Promise<ServiceSummaryStats> => {
     try {
-        const data = await fetchAllRows<{ id: string; schedule_date: string | null; service_code: string; file_number: string | null }>(() => {
-            let query = supabase
-                .from('service_entries')
-                .select('id, schedule_date, service_code, file_number');
+        const donorScoped = isDonorScoped(filter);
+        const [rawData, donorByKey] = await Promise.all([
+            fetchAllRows<{ id: string; schedule_date: string | null; service_code: string; file_number: string | null }>(() => {
+                let query = supabase
+                    .from('service_entries')
+                    .select('id, schedule_date, service_code, file_number');
 
-            if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
-            if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
+                if (filter.startDate) query = query.gte('schedule_date', filter.startDate);
+                if (filter.endDate) query = query.lte('schedule_date', filter.endDate);
 
-            return query;
-        });
+                return query;
+            }),
+            donorScoped ? fetchDonorByKey() : Promise.resolve(null),
+        ]);
+
+        const data = donorScoped
+            ? rawData.filter(s => ((s.file_number && donorByKey!.get(s.file_number)) || 'Unknown') === filter.donor)
+            : rawData;
 
         if (data.length === 0) return {
             totalServices: 0,

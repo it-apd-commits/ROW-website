@@ -14,6 +14,7 @@ import { Card } from '@/components/common/Card';
 import { supabase } from '@/lib/supabase';
 import { ClipboardList, Filter } from 'lucide-react';
 import type { ChartFilter } from '@/types/dashboard';
+import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
 
 interface Props {
     filter: ChartFilter;
@@ -47,6 +48,13 @@ function monthKey(dateStr: string): string {
     return dateStr.slice(0, 7); // YYYY-MM (works for ISO dates / YYYY-MM-DD)
 }
 
+// Assessment tables have no donor/beneficiary_id column — only patient_name
+// and phone. Same soft-link approach BeneficiaryProfile.tsx uses to attach
+// a beneficiary's history: normalize name/phone and match against the
+// beneficiaries table to find that patient's donor.
+const normalizeName = (n: string | null | undefined): string => (n || '').trim().toLowerCase();
+const normalizePhone = (p: string | null | undefined): string => (p || '').trim();
+
 export function AssessmentVsReassessmentChart({ filter }: Props) {
     const [data, setData] = useState<MonthRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -66,30 +74,83 @@ export function AssessmentVsReassessmentChart({ filter }: Props) {
             const endISO = end.toISOString().split('T')[0];
 
             try {
-                const [{ data: initials }, { data: followUps }] = await Promise.all([
-                    supabase
-                        .from('initial_assessment')
-                        .select('assessment_date')
-                        .gte('assessment_date', startISO)
-                        .lte('assessment_date', endISO),
+                const donorScoped = !!filter.donor && filter.donor !== 'all';
+
+                // Donor lookups only fetched when actually needed — the plain
+                // date-scoped queries below stay cheap when no donor is selected.
+                const [beneficiaries, allInitials, followUps] = await Promise.all([
+                    donorScoped
+                        ? fetchAllRows<{ name: string | null; mobile_no: string | null; donor: string | null }>(() =>
+                            supabase.from('beneficiaries').select('name, mobile_no, donor')
+                        )
+                        : Promise.resolve([]),
+                    donorScoped
+                        // Fetch ALL initial_assessment rows (not date-scoped) so
+                        // follow-ups whose initial assessment falls outside this
+                        // window can still be resolved to a patient/donor below.
+                        ? fetchAllRows<{ patient_id: string; patient_name: string | null; phone: string | null; assessment_date: string | null }>(() =>
+                            supabase.from('initial_assessment').select('patient_id, patient_name, phone, assessment_date')
+                        )
+                        : supabase
+                            .from('initial_assessment')
+                            .select('patient_id, patient_name, phone, assessment_date')
+                            .gte('assessment_date', startISO)
+                            .lte('assessment_date', endISO)
+                            .then(({ data }) => data || []),
                     supabase
                         .from('follow_up_assessment')
-                        .select('visit_date')
+                        .select('patient_id, visit_date')
                         .gte('visit_date', startISO)
-                        .lte('visit_date', endISO),
+                        .lte('visit_date', endISO)
+                        .then(({ data }) => data || []),
                 ]);
+
+                const donorByName = new Map<string, string>();
+                const donorByPhone = new Map<string, string>();
+                beneficiaries.forEach((b) => {
+                    const d = normalizeDonor(b.donor);
+                    const n = normalizeName(b.name);
+                    const p = normalizePhone(b.mobile_no);
+                    if (n) donorByName.set(n, d);
+                    if (p) donorByPhone.set(p, d);
+                });
+
+                // null = couldn't be matched to any beneficiary, so it can't be
+                // attributed to the selected donor and gets excluded when scoped.
+                const resolveDonor = (name: string | null, phone: string | null): string | null => {
+                    const n = normalizeName(name);
+                    const p = normalizePhone(phone);
+                    if (n && donorByName.has(n)) return donorByName.get(n)!;
+                    if (p && donorByPhone.has(p)) return donorByPhone.get(p)!;
+                    return null;
+                };
+
+                // Follow-ups only carry patient_id — resolve via the initial
+                // assessment's name/phone for that same patient_id.
+                const patientDonor = new Map<string, string | null>();
+                if (donorScoped) {
+                    allInitials.forEach((row) => {
+                        patientDonor.set(row.patient_id, resolveDonor(row.patient_name, row.phone));
+                    });
+                }
+
+                const initialsInRange = donorScoped
+                    ? allInitials.filter((row) => row.assessment_date && row.assessment_date >= startISO && row.assessment_date <= endISO)
+                    : allInitials;
 
                 const buckets = buildMonthBuckets(start, end);
                 const index = new Map(buckets.map((b, i) => [b.key, i]));
 
-                (initials || []).forEach((row) => {
+                initialsInRange.forEach((row) => {
                     if (!row.assessment_date) return;
+                    if (donorScoped && resolveDonor(row.patient_name, row.phone) !== filter.donor) return;
                     const idx = index.get(monthKey(row.assessment_date));
                     if (idx !== undefined) buckets[idx].assessments += 1;
                 });
 
-                (followUps || []).forEach((row) => {
+                followUps.forEach((row) => {
                     if (!row.visit_date) return;
+                    if (donorScoped && patientDonor.get(row.patient_id) !== filter.donor) return;
                     const idx = index.get(monthKey(row.visit_date));
                     if (idx !== undefined) buckets[idx].reassessments += 1;
                 });
@@ -108,7 +169,7 @@ export function AssessmentVsReassessmentChart({ filter }: Props) {
         };
 
         load();
-    }, [filter.startDate, filter.endDate]);
+    }, [filter.startDate, filter.endDate, filter.donor]);
 
     const isEmpty = !loading && data.every((d) => d.assessments === 0 && d.reassessments === 0);
 

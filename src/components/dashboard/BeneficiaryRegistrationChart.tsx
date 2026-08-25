@@ -42,6 +42,7 @@ export function BeneficiaryRegistrationChart({ timeframe, filter }: Props) {
                 startDate: filter.startDate,
                 endDate: filter.endDate,
                 location: selectedLocation,
+                donor: filter.donor,
             });
             setData(chartData);
             setLoading(false);

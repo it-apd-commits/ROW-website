@@ -19,9 +19,7 @@ import { DonorBreakdownTable } from '@/components/dashboard/DonorBreakdownTable'
 import { GenderBreakdownChart } from '@/components/dashboard/GenderBreakdownChart';
 import type { DonorBreakdownRow } from '@/components/dashboard/DonorBreakdownTable';
 import type { TimeFrame, ChartFilter } from '@/types/dashboard';
-
-const UNSPECIFIED_DONOR = 'Unspecified';
-const normalizeDonor = (d: string | null | undefined): string => (d && d.trim() ? d.trim() : UNSPECIFIED_DONOR);
+import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
 
 
 interface MappedCamp {
@@ -30,8 +28,9 @@ interface MappedCamp {
     type: string;
 }
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 export function DashboardPage() {
     const [isLoading, setIsLoading] = useState(true);
@@ -82,8 +81,8 @@ export function DashboardPage() {
         setGlobalFilter({ ...globalFilter, startDate: start, endDate: end });
     };
 
-    useEffect(() => {
-        const fetchDashboardData = async () => {
+    const fetchDashboardData = useCallback(() => {
+        const run = async () => {
             setIsLoading(true);
             try {
                 // Build filtered queries
@@ -106,18 +105,21 @@ export function DashboardPage() {
                 // Donor rows — fetch ALL beneficiaries (no date filter) so the
                 // service→donor map is complete even when a date range is applied;
                 // beneficiary counts are date-filtered in JS below.
-                const bRowsQuery = supabase
-                    .from('beneficiaries')
-                    .select('id, file_number, donor, date_of_registration')
-                    .range(0, 9999);
+                // Paginated via fetchAllRows: a single .range() request is still
+                // capped at Supabase's default 1000-row limit regardless of the
+                // bounds passed, which was silently truncating this once the
+                // beneficiaries table passed 1000 rows.
+                const bRowsPromise = fetchAllRows<{ id: string; file_number: string | null; donor: string | null; date_of_registration: string | null }>(() =>
+                    supabase.from('beneficiaries').select('id, file_number, donor, date_of_registration')
+                );
 
                 // Services for donor attribution — date-filtered on schedule_date.
-                let sRowsQuery = supabase
-                    .from('service_entries')
-                    .select('file_number')
-                    .range(0, 9999);
-                if (globalFilter.startDate) sRowsQuery = sRowsQuery.gte('schedule_date', globalFilter.startDate);
-                if (globalFilter.endDate) sRowsQuery = sRowsQuery.lte('schedule_date', globalFilter.endDate);
+                const sRowsPromise = fetchAllRows<{ file_number: string | null }>(() => {
+                    let q = supabase.from('service_entries').select('file_number');
+                    if (globalFilter.startDate) q = q.gte('schedule_date', globalFilter.startDate);
+                    if (globalFilter.endDate) q = q.lte('schedule_date', globalFilter.endDate);
+                    return q;
+                });
 
                 const todayStr = new Date().toISOString().split('T')[0];
 
@@ -127,8 +129,8 @@ export function DashboardPage() {
                     { data: trips, error: tError },
                     { count: servicesCount, error: srvError },
                     { data: schedules, error: sError },
-                    { data: benRows, error: bRowsError },
-                    { data: srvRows, error: sRowsError },
+                    benList,
+                    srvList,
                 ] = await Promise.all([
                     bQuery,
                     tQuery,
@@ -140,20 +142,16 @@ export function DashboardPage() {
                         .gte('scheduled_date', todayStr)
                         .order('scheduled_date', { ascending: true })
                         .limit(10),
-                    bRowsQuery,
-                    sRowsQuery,
+                    bRowsPromise,
+                    sRowsPromise,
                 ]);
 
                 if (bError) throw bError;
                 if (tError) throw tError;
                 if (srvError) throw srvError;
                 if (sError) throw sError;
-                if (bRowsError) throw bRowsError;
-                if (sRowsError) throw sRowsError;
 
                 // ---- Donor breakdown computation ----
-                const benList = (benRows || []) as { id: string; file_number: string | null; donor: string | null; date_of_registration: string | null }[];
-                const srvList = (srvRows || []) as { file_number: string | null }[];
 
                 // Map every beneficiary key (file_number AND id) to its donor, so a
                 // service_entry.file_number that holds either value still resolves.
@@ -219,8 +217,20 @@ export function DashboardPage() {
             }
         };
 
-        fetchDashboardData();
+        run();
     }, [globalFilter]);
+
+    useEffect(() => {
+        fetchDashboardData();
+    }, [fetchDashboardData]);
+
+    // Live refresh: refetch whenever beneficiaries/services/trips/schedules
+    // change on another device, or when this tab regains focus, so the stat
+    // boxes don't go stale between page loads.
+    useRealtimeSync({
+        tables: ['beneficiaries', 'service_entries', 'trips', 'monthly_schedules'],
+        onChange: fetchDashboardData,
+    });
 
     // If the selected donor no longer appears (e.g. after a date-range change), reset to All.
     useEffect(() => {
@@ -228,6 +238,14 @@ export function DashboardPage() {
             setDonorFilter('all');
         }
     }, [donorBreakdown, donorFilter]);
+
+    // Filter passed to every chart/box so donor scoping applies dashboard-wide.
+    // Memoized so an unrelated re-render (e.g. isLoading toggling) doesn't create
+    // a new object identity and trigger every chart's fetch effect needlessly.
+    const chartFilter = useMemo<ChartFilter>(
+        () => ({ ...globalFilter, donor: donorFilter }),
+        [globalFilter, donorFilter]
+    );
 
     // Donor dropdown options (real donors only) + the donor-scoped card values.
     const donorOptions = donorBreakdown.map(r => r.donor).filter(d => d !== 'Unknown');
@@ -244,7 +262,7 @@ export function DashboardPage() {
             change: '+0%',
             color: 'text-blue-600',
             bg: 'bg-blue-50',
-            link: '/beneficiary/list'
+            link: isDonorScoped ? `/beneficiary/list?donor=${encodeURIComponent(donorFilter)}` : '/beneficiary/list'
         },
         {
             label: 'Active Buses',
@@ -388,14 +406,14 @@ export function DashboardPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
                 {/* Charts Area */}
                 <div className="lg:col-span-2 space-y-4 md:space-y-6">
-                    <BeneficiaryRegistrationChart timeframe={timeframe} filter={globalFilter} />
-                    <ServiceDashboardChart timeframe={timeframe} filter={globalFilter} />
-                    <AssessmentVsReassessmentChart filter={globalFilter} />
+                    <BeneficiaryRegistrationChart timeframe={timeframe} filter={chartFilter} />
+                    <ServiceDashboardChart timeframe={timeframe} filter={chartFilter} />
+                    <AssessmentVsReassessmentChart filter={chartFilter} />
                 </div>
 
                 {/* Side Panel: Donor Breakdown + Scheduled Camps */}
                 <div className="space-y-4 md:space-y-6">
-                    <GenderBreakdownChart filter={globalFilter} />
+                    <GenderBreakdownChart filter={chartFilter} />
                     <DonorBreakdownTable rows={donorBreakdown} isLoading={isLoading} selectedDonor={donorFilter} />
 
                     <Card>

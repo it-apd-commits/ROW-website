@@ -5,6 +5,7 @@ export interface ChartFilter {
     endDate: string;
     location?: string;
     busId?: string;
+    donor?: string; // 'all' or a specific donor name; omitted/'all' means no donor scoping
 }
 
 export interface BeneficiaryChartData {

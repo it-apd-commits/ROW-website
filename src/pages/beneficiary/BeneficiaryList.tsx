@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Plus, User, MapPin, Phone, Search, Download, Trash2, CheckSquare, Square, Wifi, WifiOff, CloudOff, CloudCheck, AlertTriangle, FileUp } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { exportBeneficiariesToExcel } from '@/utils/beneficiaryExport';
 import { db } from '@/lib/db';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -13,6 +13,7 @@ import { ImportFileNumbersModal } from '@/components/beneficiary/ImportFileNumbe
 import { ImportBeneficiariesModal } from '@/components/beneficiary/ImportBeneficiariesModal';
 import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
 import { auditService } from '@/services/auditService';
+import { normalizeDonor } from '@/services/dashboardService';
 import type { OfflineBeneficiary } from '@/lib/db';
 
 interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, unknown> {
@@ -34,6 +35,8 @@ export function BeneficiaryListPage() {
     const [isImportBeneficiariesModalOpen, setIsImportBeneficiariesModalOpen] = useState(false);
     const [assignTarget, setAssignTarget] = useState<AssignFileNumberTarget | null>(null);
     const { canDeleteRecords, canImportFileNumbers, canImportBeneficiaries, canCreateRecords, canExportData } = usePermissions();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const donorFilter = searchParams.get('donor');
 
     const fetchBeneficiaries = useCallback(async () => {
         setIsLoading(true);
@@ -183,12 +186,18 @@ export function BeneficiaryListPage() {
             matchesRegistration = status === registrationFilter;
         }
 
-        return matchesSearch && matchesDate && matchesRegistration;
+        const matchesDonor = !donorFilter || normalizeDonor(b.donor as string | null | undefined) === donorFilter;
+
+        return matchesSearch && matchesDate && matchesRegistration && matchesDonor;
     });
 
     const pendingCount = beneficiaries.filter(
         b => (b.registration_status as string | undefined) === 'pending'
     ).length;
+
+    const donorOptions = Array.from(
+        new Set(beneficiaries.map(b => normalizeDonor(b.donor as string | null | undefined)))
+    ).sort((a, b) => a.localeCompare(b));
 
     return (
         <div className="space-y-6">
@@ -319,6 +328,26 @@ export function BeneficiaryListPage() {
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
                                 />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">Donor</label>
+                                <select
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                                    value={donorFilter || 'all'}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setSearchParams(prev => {
+                                            if (value === 'all') prev.delete('donor');
+                                            else prev.set('donor', value);
+                                            return prev;
+                                        });
+                                    }}
+                                >
+                                    <option value="all">All Donors</option>
+                                    {donorOptions.map(d => (
+                                        <option key={d} value={d}>{d}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
                     </div>
