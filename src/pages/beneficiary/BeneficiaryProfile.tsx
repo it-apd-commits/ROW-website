@@ -40,6 +40,8 @@ interface AssessmentSummary {
     assessment_date: string;
     primary_condition: string;
     chief_complaint: string;
+    service_referral_needed: string | null;
+    referral_reason: string | null;
     clinical_done: boolean;
     follow_up_count: number;
     latest_follow_up_date: string | null;
@@ -165,6 +167,8 @@ export function BeneficiaryProfilePage() {
                         assessment_date: i.assessment_date,
                         primary_condition: i.primary_condition,
                         chief_complaint: i.chief_complaint,
+                        service_referral_needed: i.service_referral_needed || null,
+                        referral_reason: i.referral_reason || null,
                         clinical_done: clinicalSet.has(i.patient_id),
                         follow_up_count: followUpMap.get(i.patient_id)?.count || 0,
                         latest_follow_up_date: followUpMap.get(i.patient_id)?.latestDate || null,
@@ -521,6 +525,12 @@ export function BeneficiaryProfilePage() {
                                                     {a.chief_complaint && (
                                                         <p className="text-sm text-text-muted mt-2 pl-4 border-l-2 border-gray-200 italic">
                                                             &ldquo;{a.chief_complaint}&rdquo;
+                                                        </p>
+                                                    )}
+                                                    {a.service_referral_needed && (
+                                                        <p className="text-xs text-teal-700 bg-teal-50 inline-block px-2 py-0.5 rounded mt-1">
+                                                            Referred: {a.service_referral_needed}
+                                                            {a.referral_reason ? ` (${a.referral_reason})` : ''}
                                                         </p>
                                                     )}
                                                 </div>

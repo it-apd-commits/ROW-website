@@ -35,6 +35,8 @@ interface AssessmentRecord {
     village: string;
     primary_condition: string;
     chief_complaint: string;
+    service_referral_needed: string | null;
+    referral_reason: string | null;
     side_of_limb_affected: string;
     joint_involved: string;
     document_type: string;
@@ -133,6 +135,8 @@ export function AssessmentHistoryPage() {
                         village: r.village,
                         primary_condition: r.primary_condition,
                         chief_complaint: r.chief_complaint,
+                        service_referral_needed: r.service_referral_needed || null,
+                        referral_reason: r.referral_reason || null,
                         side_of_limb_affected: r.side_of_limb_affected,
                         joint_involved: r.joint_involved,
                         document_type: r.document_type,
@@ -202,6 +206,8 @@ export function AssessmentHistoryPage() {
             { header: 'Village', key: 'village', width: 18 },
             { header: 'Primary Condition', key: 'primary_condition', width: 18 },
             { header: 'Chief Complaint', key: 'chief_complaint', width: 22 },
+            { header: 'Service Referral Needed', key: 'service_referral_needed', width: 22 },
+            { header: 'Referral Reason', key: 'referral_reason', width: 18 },
             { header: 'Side Affected', key: 'side_of_limb_affected', width: 14 },
             { header: 'Joint Involved', key: 'joint_involved', width: 14 },
             { header: 'Document Type', key: 'document_type', width: 14 },
@@ -423,6 +429,11 @@ export function AssessmentHistoryPage() {
                                             <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[140px]">
                                                 {r.chief_complaint}
                                             </div>
+                                            {r.service_referral_needed && (
+                                                <div className="text-[10px] text-teal-700 mt-1 truncate max-w-[140px]">
+                                                    Referred: {r.service_referral_needed}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="py-5">
                                             <div className="text-xs text-gray-700">

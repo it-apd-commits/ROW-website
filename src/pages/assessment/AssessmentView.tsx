@@ -139,6 +139,12 @@ export function AssessmentViewPage() {
                     <Field label="Side of Limb" value={initial.side_of_limb_affected} />
                     <Field label="Joint Involved" value={initial.joint_involved} />
                     <Field label="Document Type" value={initial.document_type} />
+                    {initial.service_referral_needed && (
+                        <Field label="Service Referral Needed" value={initial.service_referral_needed} />
+                    )}
+                    {initial.referral_reason && (
+                        <Field label="Reason for Referral" value={initial.referral_reason} />
+                    )}
                 </div>
             </Card>
 
