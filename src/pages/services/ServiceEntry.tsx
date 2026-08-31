@@ -90,9 +90,12 @@ export function ServiceEntryPage() {
                     .single();
 
                 if (!fetchErr && data) {
+                    // Fall back to the beneficiary's id, same as manual selection
+                    // (line ~317) — otherwise a beneficiary with no file_number
+                    // assigned yet leaves this null despite showing as selected.
                     setFormData(prev => ({
                         ...prev,
-                        file_number: data.file_number ?? null
+                        file_number: data.file_number ?? data.id
                     }));
                 }
             };

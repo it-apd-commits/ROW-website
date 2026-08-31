@@ -115,8 +115,8 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
             if (!formData.mode_of_service) e.mode_of_service = 'Mode is required';
             if (!formData.custom_field2) e.custom_field2 = 'Follow-up number is required';
 
-            if (formData.status === 'AVAILED' && !formData.end_date) {
-                e.end_date = 'End date required when AVAILED';
+            if (!formData.end_date) {
+                e.end_date = 'End date is required';
             }
             if (formData.start_date && formData.schedule_date && formData.start_date < formData.schedule_date) {
                 e.start_date = 'Cannot be before schedule date';
@@ -181,7 +181,7 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
 
             const isValid = !!(hasBase &&
                 filledRows.length > 0 &&
-                !(formData.status === 'AVAILED' && !formData.end_date));
+                formData.end_date);
 
             const snapshot = JSON.stringify({ payloads, isValid });
             if (snapshot === lastNotifiedRef.current) return;
@@ -254,12 +254,12 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
                         required
                     />
                     <Input
-                        label={`End Date ${formData.status === 'AVAILED' ? '*' : '(Optional)'}`}
+                        label="End Date *"
                         type="date"
                         value={formData.end_date || ''}
                         onChange={e => handleChange('end_date', e.target.value || null)}
                         error={errors.end_date}
-                        required={formData.status === 'AVAILED'}
+                        required
                     />
                     <Select
                         label="Location Code"
