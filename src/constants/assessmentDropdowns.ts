@@ -18,12 +18,33 @@ export const DROPDOWNS = {
         'Limb weakness', 'Balance problem', 'Coordination problem',
         'Breathlessness', 'Cough', 'Chest tightness', 'Post surgical pain',
         'Joint stiffness', 'Difficulty walking', 'Difficulty transfers',
-        'Stump pain', 'Prosthetic training', 'Other',
+        'Stump pain', 'Prosthetic training',
+        'Pain', 'Difficulty Standing', 'Balance Difficulty', 'Weakness',
+        'Reduced Range of Motion', 'Stiffness / Spasticity', 'Contracture',
+        'Difficulty with Transfers', 'ADL Difficulty',
+        'Speech / Communication Difficulty', 'Hearing Difficulty',
+        'Vision Difficulty', 'Developmental Delay', 'Behavioural Concern',
+        'Cognitive Difficulty', 'Breathing Difficulty', 'Swelling', 'Fatigue',
+        'Assistive Device Requirement', 'Hearing Aid Requirement',
+        'AAT Requirement', 'Post-operative Rehabilitation',
+        'Other',
     ],
 
     LimbSide: ['Left', 'Right', 'Bilateral', 'Not Applicable'],
 
     Joint: ['Shoulder', 'Elbow', 'Wrist', 'Hip', 'Knee', 'Ankle', 'Spine', 'Multiple', 'Not Applicable'],
+
+    ServiceReferralNeeded: [
+        'ASLP', 'Occupational Therapy (OT)', 'Psychology', 'PMR / Medical Review',
+        'Hearing Assessment / Hearing Aid Camp', 'AAT Assessment / AAT Camp',
+        'Orthotics & Prosthetics', 'Audiology', 'Other',
+    ],
+    ReferralReason: [
+        'Pain', 'Mobility', 'Balance', 'ADL', 'Speech / Communication',
+        'Hearing', 'Vision', 'Development', 'Behaviour', 'Cognition',
+        'Medical Review', 'Hearing Aid', 'AAT / Assistive Device',
+        'Orthosis / Prosthesis', 'Other',
+    ],
 
     Documents: ['BPL', 'APL', 'AADHAR', 'UDID', 'Not Applicable'],
 

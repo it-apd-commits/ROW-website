@@ -153,6 +153,8 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                 chief_complaint: isEI ? 'N/A' : data.chief_complaint!,
                 side_of_limb_affected: isEI ? 'N/A' : data.side_of_limb_affected!,
                 joint_involved: isEI ? 'N/A' : data.joint_involved!,
+                service_referral_needed: isEI ? null : (data.service_referral_needed || null),
+                referral_reason: isEI ? null : (data.referral_reason || null),
                 document_type: data.document_type!,
             };
             const result = isEdit
@@ -325,6 +327,20 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                                 options={toOptions(DROPDOWNS.Joint)}
                                 error={errors.joint_involved}
                                 required
+                            />
+                            <Select
+                                label="Service Referral / Assessment Needed"
+                                value={data.service_referral_needed || ''}
+                                onChange={e => set('service_referral_needed', e.target.value)}
+                                options={toOptions(DROPDOWNS.ServiceReferralNeeded)}
+                                error={errors.service_referral_needed}
+                            />
+                            <Select
+                                label="Reason for Referral / Assessment"
+                                value={data.referral_reason || ''}
+                                onChange={e => set('referral_reason', e.target.value)}
+                                options={toOptions(DROPDOWNS.ReferralReason)}
+                                error={errors.referral_reason}
                             />
                         </>
                     )}

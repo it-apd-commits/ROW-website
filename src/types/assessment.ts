@@ -10,6 +10,8 @@ export interface InitialAssessment {
     chief_complaint: string;
     side_of_limb_affected: string;
     joint_involved: string;
+    service_referral_needed?: string | null;
+    referral_reason?: string | null;
     document_type: string;
     created_at?: string;
 }
