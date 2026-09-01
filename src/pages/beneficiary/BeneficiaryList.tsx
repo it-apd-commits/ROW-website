@@ -430,6 +430,8 @@ export function BeneficiaryListPage() {
                             >
                                 {selectedIds.length === filteredBeneficiaries.length && selectedIds.length > 0 ? (
                                     <><CheckSquare size={18} className="text-primary" /> Unselect All ({selectedIds.length})</>
+                                ) : selectedIds.length > 0 ? (
+                                    <><Square size={18} /> {selectedIds.length} Selected</>
                                 ) : (
                                     <><Square size={18} /> Select All ({filteredBeneficiaries.length})</>
                                 )}
@@ -477,7 +479,7 @@ export function BeneficiaryListPage() {
                                         {b.id && (
                                             <div
                                                 onClick={(e) => toggleSelect(e, b.id!)}
-                                                className="absolute top-3 right-3 z-10 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                className="absolute top-3 right-3 z-10 p-1"
                                             >
                                                 {selectedIds.includes(b.id) ? (
                                                     <div className="bg-primary text-white rounded-md p-1 shadow-sm">
