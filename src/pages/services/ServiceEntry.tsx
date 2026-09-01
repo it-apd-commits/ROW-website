@@ -46,7 +46,7 @@ export function ServiceEntryPage() {
         file_number: null,
         schedule_date: new Date().toISOString().split('T')[0],
         start_date: new Date().toISOString().split('T')[0],
-        end_date: null,
+        end_date: new Date().toISOString().split('T')[0],
         location_code: 'MCB',
         service_code: '',
         service_provider_code: '',
@@ -142,7 +142,13 @@ export function ServiceEntryPage() {
     }, [formData.file_number, id]);
 
     const handleChange = (name: string, value: string | number | null) => {
-        setFormData(prev => ({ ...prev, [name]: value }));
+        setFormData(prev => ({
+            ...prev,
+            [name]: value,
+            // Keep End Date following Start Date by default — staff can still
+            // edit End Date afterward for services that span multiple days.
+            ...(name === 'start_date' ? { end_date: value as string | null } : {}),
+        }));
         setError(null);
     };
 

@@ -29,17 +29,24 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { auditService } from '@/services/auditService';
+import { normalizeDonor } from '@/services/dashboardService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
 interface ExtendedServiceRecord extends ServiceEntry {
     beneficiary?: {
         name: string;
+        donor?: string;
+        location?: string;
     };
     isOffline?: boolean;
     sync_status?: 'pending' | 'synced' | 'failed';
     error_message?: string;
 }
+
+const UNSPECIFIED_LOCATION = 'Unspecified';
+const resolveLocation = (district?: string | null, city?: string | null) =>
+    district?.trim() || city?.trim() || UNSPECIFIED_LOCATION;
 
 export function ServiceHistoryPage() {
     const [services, setServices] = useState<ExtendedServiceRecord[]>([]);
@@ -51,11 +58,13 @@ export function ServiceHistoryPage() {
     const searchTerm = searchParams.get('q') || '';
     const fromDate = searchParams.get('from') || '';
     const toDate = searchParams.get('to') || '';
+    const locationFilter = searchParams.get('location') || 'all';
+    const donorFilter = searchParams.get('donor') || 'all';
 
     const setFilterParam = useCallback((key: string, value: string | null) => {
         setSearchParams(prev => {
             const next = new URLSearchParams(prev);
-            if (!value) next.delete(key);
+            if (!value || value === 'all') next.delete(key);
             else next.set(key, value);
             return next;
         }, { replace: true });
@@ -64,7 +73,7 @@ export function ServiceHistoryPage() {
     const clearFilters = useCallback(() => {
         setSearchParams(prev => {
             const next = new URLSearchParams(prev);
-            ['q', 'from', 'to'].forEach(key => next.delete(key));
+            ['q', 'from', 'to', 'location', 'donor'].forEach(key => next.delete(key));
             return next;
         }, { replace: true });
     }, [setSearchParams]);
@@ -95,8 +104,11 @@ export function ServiceHistoryPage() {
 
                         // bMap: stored file_number -> beneficiary name
                         // fnMap: stored file_number -> real file_number (when stored value is a token/UUID)
+                        // donorMap/locationMap: stored file_number -> donor / resolved district-or-city
                         const bMap = new Map<string, string>();
                         const fnMap = new Map<string, string>();
+                        const donorMap = new Map<string, string>();
+                        const locationMap = new Map<string, string>();
 
                         if (fileNumbers.length > 0) {
                             const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -108,10 +120,14 @@ export function ServiceHistoryPage() {
                             if (realFileNums.length > 0) {
                                 const { data: byFileNum } = await supabase
                                     .from('beneficiaries')
-                                    .select('name, file_number')
+                                    .select('name, file_number, donor, district, city')
                                     .in('file_number', realFileNums);
-                                byFileNum?.forEach((b: { name: string; file_number: string | null }) => {
-                                    if (b.file_number) bMap.set(b.file_number, b.name);
+                                byFileNum?.forEach((b: { name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }) => {
+                                    if (b.file_number) {
+                                        bMap.set(b.file_number, b.name);
+                                        donorMap.set(b.file_number, normalizeDonor(b.donor));
+                                        locationMap.set(b.file_number, resolveLocation(b.district, b.city));
+                                    }
                                 });
                             }
 
@@ -119,10 +135,12 @@ export function ServiceHistoryPage() {
                             if (uuidRefs.length > 0) {
                                 const { data: byId } = await supabase
                                     .from('beneficiaries')
-                                    .select('id, name, file_number')
+                                    .select('id, name, file_number, donor, district, city')
                                     .in('id', uuidRefs);
-                                byId?.forEach((b: { id: string; name: string; file_number: string | null }) => {
+                                byId?.forEach((b: { id: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }) => {
                                     bMap.set(b.id, b.name);
+                                    donorMap.set(b.id, normalizeDonor(b.donor));
+                                    locationMap.set(b.id, resolveLocation(b.district, b.city));
                                     if (b.file_number) fnMap.set(b.id, b.file_number);
                                 });
                             }
@@ -131,10 +149,12 @@ export function ServiceHistoryPage() {
                             if (offTokenRefs.length > 0) {
                                 const { data: byToken } = await supabase
                                     .from('beneficiaries')
-                                    .select('offline_token, name, file_number')
+                                    .select('offline_token, name, file_number, donor, district, city')
                                     .in('offline_token', offTokenRefs);
-                                byToken?.forEach((b: { offline_token: string; name: string; file_number: string | null }) => {
+                                byToken?.forEach((b: { offline_token: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }) => {
                                     bMap.set(b.offline_token, b.name);
+                                    donorMap.set(b.offline_token, normalizeDonor(b.donor));
+                                    locationMap.set(b.offline_token, resolveLocation(b.district, b.city));
                                     if (b.file_number) fnMap.set(b.offline_token, b.file_number);
                                 });
                             }
@@ -144,10 +164,12 @@ export function ServiceHistoryPage() {
                             if (notFound.length > 0) {
                                 const { data: byName } = await supabase
                                     .from('beneficiaries')
-                                    .select('name')
+                                    .select('name, donor, district, city')
                                     .in('name', notFound);
-                                byName?.forEach((b: { name: string }) => {
+                                byName?.forEach((b: { name: string; donor: string | null; district: string | null; city: string | null }) => {
                                     bMap.set(b.name, b.name);
+                                    donorMap.set(b.name, normalizeDonor(b.donor));
+                                    locationMap.set(b.name, resolveLocation(b.district, b.city));
                                 });
                             }
                         }
@@ -157,7 +179,11 @@ export function ServiceHistoryPage() {
                             return {
                                 ...item,
                                 file_number: fnMap.get(storedFn) ?? item.file_number,
-                                beneficiary: { name: bMap.get(storedFn) || 'Beneficiary Not Found' }
+                                beneficiary: {
+                                    name: bMap.get(storedFn) || 'Beneficiary Not Found',
+                                    donor: donorMap.get(storedFn),
+                                    location: locationMap.get(storedFn),
+                                }
                             };
                         });
                     }
@@ -179,10 +205,16 @@ export function ServiceHistoryPage() {
                     .map(r => r.file_number!)
             )];
             const dexieNameMap = new Map<string, string>();
+            const dexieDonorMap = new Map<string, string>();
+            const dexieLocationMap = new Map<string, string>();
             if (offlineTokens.length > 0) {
                 const dexieBeneficiaries = await db.beneficiaries
                     .where('offline_token').anyOf(offlineTokens).toArray();
-                dexieBeneficiaries.forEach(b => dexieNameMap.set(b.offline_token, b.name));
+                dexieBeneficiaries.forEach(b => {
+                    dexieNameMap.set(b.offline_token, b.name);
+                    dexieDonorMap.set(b.offline_token, normalizeDonor(b.donor));
+                    dexieLocationMap.set(b.offline_token, resolveLocation(b.district, b.city));
+                });
             }
 
             const offlineEntries: ExtendedServiceRecord[] = localPending
@@ -211,7 +243,11 @@ export function ServiceHistoryPage() {
                     remarks: r.remarks,
                     created_at: r.created_at,
                     updated_at: r.created_at,
-                    beneficiary: { name: dexieNameMap.get(r.file_number ?? '') || r.file_number || 'Unknown' },
+                    beneficiary: {
+                        name: dexieNameMap.get(r.file_number ?? '') || r.file_number || 'Unknown',
+                        donor: dexieDonorMap.get(r.file_number ?? ''),
+                        location: dexieLocationMap.get(r.file_number ?? ''),
+                    },
                     isOffline: true,
                     sync_status: r.sync_status,
                     error_message: r.error_message,
@@ -246,10 +282,21 @@ export function ServiceHistoryPage() {
         const matchesFrom = !fromDate || serviceDate >= fromDate;
         const matchesTo = !toDate || serviceDate <= toDate;
 
-        return matchesSearch && matchesFrom && matchesTo;
+        const matchesLocation = locationFilter === 'all' || s.beneficiary?.location === locationFilter;
+        const matchesDonor = donorFilter === 'all' || s.beneficiary?.donor === donorFilter;
+
+        return matchesSearch && matchesFrom && matchesTo && matchesLocation && matchesDonor;
     });
 
     const uniqueBeneficiaryCount = new Set(filteredServices.map(s => s.file_number)).size;
+
+    const locationOptions = Array.from(
+        new Set(services.map(s => s.beneficiary?.location).filter((v): v is string => !!v))
+    ).sort((a, b) => a.localeCompare(b));
+
+    const donorOptions = Array.from(
+        new Set(services.map(s => s.beneficiary?.donor).filter((v): v is string => !!v))
+    ).sort((a, b) => a.localeCompare(b));
 
     const handleExport = async () => {
         const ExcelJS = (await import('exceljs')).default;
@@ -388,7 +435,27 @@ export function ServiceHistoryPage() {
                             value={toDate}
                             onChange={(e) => setFilterParam('to', e.target.value)}
                         />
-                        {(searchTerm || fromDate || toDate) && (
+                        <select
+                            className="w-36 lg:w-40 px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            value={locationFilter}
+                            onChange={(e) => setFilterParam('location', e.target.value)}
+                        >
+                            <option value="all">All Locations</option>
+                            {locationOptions.map(loc => (
+                                <option key={loc} value={loc}>{loc}</option>
+                            ))}
+                        </select>
+                        <select
+                            className="w-36 lg:w-40 px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            value={donorFilter}
+                            onChange={(e) => setFilterParam('donor', e.target.value)}
+                        >
+                            <option value="all">All Donors</option>
+                            {donorOptions.map(d => (
+                                <option key={d} value={d}>{d}</option>
+                            ))}
+                        </select>
+                        {(searchTerm || fromDate || toDate || locationFilter !== 'all' || donorFilter !== 'all') && (
                             <button
                                 onClick={clearFilters}
                                 className="text-xs font-bold text-primary hover:underline px-2"
