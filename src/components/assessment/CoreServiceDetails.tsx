@@ -63,7 +63,7 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
             file_number: null,
             schedule_date: today,
             start_date: today,
-            end_date: null,
+            end_date: today,
             location_code: 'MCB',
             service_provider_code: '',
             mode_of_service: 'ROW',
@@ -81,7 +81,13 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
         const lastNotifiedRef = useRef<string>('');
 
         const handleChange = (field: keyof ServiceFormData, value: string | null) => {
-            setFormData(prev => ({ ...prev, [field]: value }));
+            setFormData(prev => ({
+                ...prev,
+                [field]: value,
+                // Keep End Date following Start Date by default — staff can still
+                // edit End Date afterward for services that span multiple days.
+                ...(field === 'start_date' ? { end_date: value } : {}),
+            }));
             if (errors[field]) setErrors(prev => { const n = { ...prev }; delete n[field]; return n; });
             setSaveStatus('idle');
         };
