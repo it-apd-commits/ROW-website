@@ -123,9 +123,14 @@ export const assessmentService = {
 
         if (navigator.onLine) {
             try {
+                // Upsert, not insert — the background sync process can independently
+                // push this same pending record to Supabase moments before this direct
+                // save runs (e.g. after a brief reconnect), and clinical_assessment only
+                // allows one row per patient_id. A plain insert would then fail with a
+                // duplicate-key error even though the record already saved successfully.
                 const { data: result, error } = await supabase
                     .from('clinical_assessment')
-                    .insert(data)
+                    .upsert(data, { onConflict: 'patient_id' })
                     .select()
                     .single();
                 if (error) throw error;
@@ -203,9 +208,13 @@ export const assessmentService = {
 
         if (navigator.onLine) {
             try {
+                // Upsert, not insert — same reasoning as createClinical() above: the
+                // background sync can beat this direct save to Supabase, and this would
+                // otherwise fail with a duplicate-key error on the (patient_id,
+                // session_number) unique constraint despite already having saved.
                 const { data: result, error } = await supabase
                     .from('follow_up_assessment')
-                    .insert(data)
+                    .upsert(data, { onConflict: 'patient_id,session_number' })
                     .select()
                     .single();
                 if (error) throw error;
