@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
@@ -23,6 +23,7 @@ interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, un
 }
 
 const UNSPECIFIED_LOCATION = 'Unspecified';
+const SCROLL_POSITION_KEY = 'beneficiaryList:scrollTop';
 
 // District is the broader, more consistent grouping for filtering; city/village
 // free text has too many spelling variants to make a clean dropdown.
@@ -106,6 +107,38 @@ export function BeneficiaryListPage() {
         onChange: fetchBeneficiaries,
         enabled: isOnline,
     });
+
+    // Remember scroll position on the way out so returning via the browser/back
+    // button (e.g. from a beneficiary's profile) restores the same spot in the
+    // filtered list instead of snapping back to the top. The app's main content
+    // area scrolls independently of the window, so both are captured — whichever
+    // one actually moved is the one that matters.
+    useEffect(() => {
+        const scrollEl = document.querySelector('main');
+        return () => {
+            sessionStorage.setItem(SCROLL_POSITION_KEY, JSON.stringify({
+                main: scrollEl?.scrollTop ?? 0,
+                window: window.scrollY,
+            }));
+        };
+    }, []);
+
+    // Runs before paint (not useEffect) so the list never visibly flashes at
+    // the top before jumping to the restored position.
+    useLayoutEffect(() => {
+        if (isLoading) return;
+        const saved = sessionStorage.getItem(SCROLL_POSITION_KEY);
+        if (!saved) return;
+        sessionStorage.removeItem(SCROLL_POSITION_KEY);
+        try {
+            const { main, window: windowY } = JSON.parse(saved) as { main: number; window: number };
+            const scrollEl = document.querySelector('main');
+            if (scrollEl) scrollEl.scrollTop = main;
+            window.scrollTo(0, windowY);
+        } catch {
+            // Ignore malformed/stale sessionStorage value.
+        }
+    }, [isLoading]);
 
     const handleDelete = async (id: string, name: string) => {
         if (!window.confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) return;
