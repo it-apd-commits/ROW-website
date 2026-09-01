@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { Card } from '@/components/common/Card';
@@ -29,6 +29,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { auditService } from '@/services/auditService';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
 interface ExtendedServiceRecord extends ServiceEntry {
@@ -43,9 +44,30 @@ interface ExtendedServiceRecord extends ServiceEntry {
 export function ServiceHistoryPage() {
     const [services, setServices] = useState<ExtendedServiceRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [fromDate, setFromDate] = useState('');
-    const [toDate, setToDate] = useState('');
+
+    // Filters live in the URL (not useState) so that navigating to Edit and
+    // pressing back restores them — the list otherwise remounts fresh.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const searchTerm = searchParams.get('q') || '';
+    const fromDate = searchParams.get('from') || '';
+    const toDate = searchParams.get('to') || '';
+
+    const setFilterParam = useCallback((key: string, value: string | null) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            if (!value) next.delete(key);
+            else next.set(key, value);
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
+    const clearFilters = useCallback(() => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            ['q', 'from', 'to'].forEach(key => next.delete(key));
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
 
     const navigate = useNavigate();
     const { canEditRecords, canDeleteRecords, canExportData, canImportServices } = usePermissions();
@@ -216,7 +238,7 @@ export function ServiceHistoryPage() {
 
     const filteredServices = services.filter(s => {
         const matchesSearch =
-            (s.beneficiary?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            nameMatchesSearch(s.beneficiary?.name, searchTerm) ||
             (s.file_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (s.service_code || '').toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -345,7 +367,7 @@ export function ServiceHistoryPage() {
                             placeholder="Search by Beneficiary, File Number or Service..."
                             className="pl-10"
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={(e) => setFilterParam('q', e.target.value)}
                         />
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -357,18 +379,18 @@ export function ServiceHistoryPage() {
                             type="date"
                             className="w-36 lg:w-40"
                             value={fromDate}
-                            onChange={(e) => setFromDate(e.target.value)}
+                            onChange={(e) => setFilterParam('from', e.target.value)}
                         />
                         <span className="text-gray-400">to</span>
                         <Input
                             type="date"
                             className="w-36 lg:w-40"
                             value={toDate}
-                            onChange={(e) => setToDate(e.target.value)}
+                            onChange={(e) => setFilterParam('to', e.target.value)}
                         />
                         {(searchTerm || fromDate || toDate) && (
                             <button
-                                onClick={() => { setSearchTerm(''); setFromDate(''); setToDate(''); }}
+                                onClick={clearFilters}
                                 className="text-xs font-bold text-primary hover:underline px-2"
                             >
                                 Clear All

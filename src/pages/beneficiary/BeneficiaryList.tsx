@@ -14,6 +14,7 @@ import { ImportBeneficiariesModal } from '@/components/beneficiary/ImportBenefic
 import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
 import { auditService } from '@/services/auditService';
 import { normalizeDonor } from '@/services/dashboardService';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { OfflineBeneficiary } from '@/lib/db';
 
 interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, unknown> {
@@ -21,76 +22,47 @@ interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, un
     isOffline?: boolean;
 }
 
-// Levenshtein edit distance — how many single-character edits (insert/
-// delete/substitute) turn one string into the other, e.g. "adib"→"adeeb" = 1.
-function levenshteinDistance(a: string, b: string): number {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
+const UNSPECIFIED_LOCATION = 'Unspecified';
 
-    const prevRow = new Array(b.length + 1);
-    for (let j = 0; j <= b.length; j++) prevRow[j] = j;
-
-    for (let i = 1; i <= a.length; i++) {
-        let diagonal = prevRow[0];
-        prevRow[0] = i;
-        for (let j = 1; j <= b.length; j++) {
-            const temp = prevRow[j];
-            prevRow[j] = a[i - 1] === b[j - 1]
-                ? diagonal
-                : 1 + Math.min(diagonal, prevRow[j], prevRow[j - 1]);
-            diagonal = temp;
-        }
-    }
-    return prevRow[b.length];
-}
-
-// Edit distance allowed as a fraction of the longer string's length, rather
-// than a flat character count — a fixed threshold either misses real typos
-// on short names or over-matches unrelated ones. 0.4 was picked by testing
-// against real examples: it catches "adib"~"adeeb" (ratio 0.40) while still
-// rejecting a same-length-difference near-miss like "adib"~"amit" (0.50).
-const FUZZY_MAX_DISTANCE_RATIO = 0.4;
-
-function isFuzzyMatch(word: string, term: string): boolean {
-    if (!word || !term) return false;
-    const maxLen = Math.max(word.length, term.length);
-    const allowedDistance = Math.floor(maxLen * FUZZY_MAX_DISTANCE_RATIO);
-    if (allowedDistance === 0) return word === term;
-    if (Math.abs(word.length - term.length) > allowedDistance) return false;
-    return levenshteinDistance(word, term) <= allowedDistance;
-}
-
-// Matches a beneficiary name against a search term, tolerating minor
-// spelling variations (e.g. "Adib" ~ "Adeeb") in addition to plain substring
-// matches. Checked per-word (and against the full name) so a typo anywhere
-// in a multi-word name is still caught.
-function nameMatchesSearch(name: string | null | undefined, term: string): boolean {
-    const normalizedTerm = term.trim().toLowerCase();
-    if (!normalizedTerm) return true;
-
-    const normalizedName = (name || '').trim().toLowerCase();
-    if (normalizedName.includes(normalizedTerm)) return true;
-
-    const candidates = [...normalizedName.split(/\s+/), normalizedName];
-    return candidates.some(word => isFuzzyMatch(word, normalizedTerm));
+// District is the broader, more consistent grouping for filtering; city/village
+// free text has too many spelling variants to make a clean dropdown.
+function getBeneficiaryLocation(b: BeneficiaryItem): string {
+    const district = (b.district as string | undefined)?.trim();
+    if (district) return district;
+    const city = (b.city as string | undefined)?.trim();
+    return city || UNSPECIFIED_LOCATION;
 }
 
 export function BeneficiaryListPage() {
     const isOnline = useOnlineStatus();
     const [beneficiaries, setBeneficiaries] = useState<BeneficiaryItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [registrationFilter, setRegistrationFilter] = useState<'all' | 'pending' | 'complete'>('all');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isImportBeneficiariesModalOpen, setIsImportBeneficiariesModalOpen] = useState(false);
     const [assignTarget, setAssignTarget] = useState<AssignFileNumberTarget | null>(null);
     const { canDeleteRecords, canImportFileNumbers, canImportBeneficiaries, canCreateRecords, canExportData } = usePermissions();
+
+    // Filters live in the URL (not useState) so that navigating to a beneficiary's
+    // profile and pressing back restores them — the list otherwise remounts fresh.
     const [searchParams, setSearchParams] = useSearchParams();
+    const searchTerm = searchParams.get('q') || '';
+    const startDate = searchParams.get('from') || '';
+    const endDate = searchParams.get('to') || '';
+    const registrationFilter = (searchParams.get('status') as 'all' | 'pending' | 'complete') || 'all';
+    const locationFilter = searchParams.get('location') || 'all';
     const donorFilter = searchParams.get('donor');
+    const fileStatusFilter = (searchParams.get('fileStatus') as 'all' | 'assigned' | 'unassigned') || 'all';
+
+    const setFilterParam = useCallback((key: string, value: string | null) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            if (!value || value === 'all') next.delete(key);
+            else next.set(key, value);
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
 
     const fetchBeneficiaries = useCallback(async () => {
         setIsLoading(true);
@@ -242,7 +214,12 @@ export function BeneficiaryListPage() {
 
         const matchesDonor = !donorFilter || normalizeDonor(b.donor as string | null | undefined) === donorFilter;
 
-        return matchesSearch && matchesDate && matchesRegistration && matchesDonor;
+        const matchesLocation = locationFilter === 'all' || getBeneficiaryLocation(b) === locationFilter;
+
+        const matchesFileStatus = fileStatusFilter === 'all'
+            || (fileStatusFilter === 'assigned' ? !!b.file_number : !b.file_number);
+
+        return matchesSearch && matchesDate && matchesRegistration && matchesDonor && matchesLocation && matchesFileStatus;
     });
 
     const pendingCount = beneficiaries.filter(
@@ -252,6 +229,20 @@ export function BeneficiaryListPage() {
     const donorOptions = Array.from(
         new Set(beneficiaries.map(b => normalizeDonor(b.donor as string | null | undefined)))
     ).sort((a, b) => a.localeCompare(b));
+
+    const locationOptions = Array.from(
+        new Set(beneficiaries.map(getBeneficiaryLocation))
+    ).sort((a, b) => a.localeCompare(b));
+
+    const hasActiveFilters = !!(searchTerm || startDate || endDate || donorFilter || locationFilter !== 'all' || registrationFilter !== 'all' || fileStatusFilter !== 'all');
+
+    const clearFilters = () => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            ['q', 'from', 'to', 'location', 'donor', 'status', 'fileStatus'].forEach(key => next.delete(key));
+            return next;
+        }, { replace: true });
+    };
 
     return (
         <div className="space-y-6">
@@ -334,95 +325,113 @@ export function BeneficiaryListPage() {
             <Card className="p-4">
                 <div className="flex flex-wrap gap-2 mb-4">
                     <button
-                        onClick={() => setRegistrationFilter('all')}
+                        onClick={() => setFilterParam('status', 'all')}
                         className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${registrationFilter === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
                         All ({beneficiaries.length})
                     </button>
                     <button
-                        onClick={() => setRegistrationFilter('pending')}
+                        onClick={() => setFilterParam('status', 'pending')}
                         className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${registrationFilter === 'pending' ? 'bg-orange-500 text-white border-orange-500' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
                     >
                         Pending Registration ({pendingCount})
                     </button>
                     <button
-                        onClick={() => setRegistrationFilter('complete')}
+                        onClick={() => setFilterParam('status', 'complete')}
                         className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${registrationFilter === 'complete' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
                         Registered
                     </button>
                 </div>
-                <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4 mb-6">
-                    <div className="flex flex-col sm:flex-row flex-1 w-full min-w-0 gap-3">
-                        <div className="relative sm:flex-[2] min-w-0">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={20} />
+                <div className="space-y-3 mb-6">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={20} />
+                        <input
+                            type="text"
+                            placeholder="Search by name, mobile, or file number..."
+                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                            value={searchTerm}
+                            onChange={(e) => setFilterParam('q', e.target.value)}
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div>
+                            <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">From Date</label>
                             <input
-                                type="text"
-                                placeholder="Search by name, mobile, or file number..."
-                                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
+                                type="date"
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                value={startDate}
+                                onChange={(e) => setFilterParam('from', e.target.value)}
                             />
                         </div>
-                        <div className="flex sm:flex-1 gap-3 w-full min-w-0">
-                            <div className="flex-1 min-w-0">
-                                <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">From Date</label>
-                                <input
-                                    type="date"
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                    value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">To Date</label>
-                                <input
-                                    type="date"
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                    value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">Donor</label>
-                                <select
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-                                    value={donorFilter || 'all'}
-                                    onChange={(e) => {
-                                        const value = e.target.value;
-                                        setSearchParams(prev => {
-                                            if (value === 'all') prev.delete('donor');
-                                            else prev.set('donor', value);
-                                            return prev;
-                                        });
-                                    }}
-                                >
-                                    <option value="all">All Donors</option>
-                                    {donorOptions.map(d => (
-                                        <option key={d} value={d}>{d}</option>
-                                    ))}
-                                </select>
-                            </div>
+                        <div>
+                            <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">To Date</label>
+                            <input
+                                type="date"
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                value={endDate}
+                                onChange={(e) => setFilterParam('to', e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">Location</label>
+                            <select
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                                value={locationFilter}
+                                onChange={(e) => setFilterParam('location', e.target.value)}
+                            >
+                                <option value="all">All Locations</option>
+                                {locationOptions.map(loc => (
+                                    <option key={loc} value={loc}>{loc}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">Donor</label>
+                            <select
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                                value={donorFilter || 'all'}
+                                onChange={(e) => setFilterParam('donor', e.target.value)}
+                            >
+                                <option value="all">All Donors</option>
+                                {donorOptions.map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">File Number</label>
+                            <select
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                                value={fileStatusFilter}
+                                onChange={(e) => setFilterParam('fileStatus', e.target.value)}
+                            >
+                                <option value="all">All</option>
+                                <option value="assigned">Assigned</option>
+                                <option value="unassigned">Unassigned</option>
+                            </select>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {(startDate || endDate) && (
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                        {hasActiveFilters ? (
                             <button
-                                onClick={() => { setStartDate(''); setEndDate(''); }}
+                                onClick={clearFilters}
                                 className="text-xs font-bold text-red-500 hover:text-red-600 px-3 py-2 bg-red-50 rounded-lg transition-colors border border-red-100"
                             >
-                                Clear Dates
+                                Clear Filters
                             </button>
-                        )}
+                        ) : <span />}
                         {filteredBeneficiaries.length > 0 && (
                             <button
                                 onClick={toggleSelectAll}
                                 className="flex items-center gap-2 text-sm font-medium text-text-muted hover:text-primary transition-colors px-3 py-2 bg-gray-50 rounded-lg border border-gray-100"
                             >
                                 {selectedIds.length === filteredBeneficiaries.length && selectedIds.length > 0 ? (
-                                    <><CheckSquare size={18} className="text-primary" /> Unselect All</>
+                                    <><CheckSquare size={18} className="text-primary" /> Unselect All ({selectedIds.length})</>
                                 ) : (
-                                    <><Square size={18} /> Select All</>
+                                    <><Square size={18} /> Select All ({filteredBeneficiaries.length})</>
                                 )}
                             </button>
                         )}

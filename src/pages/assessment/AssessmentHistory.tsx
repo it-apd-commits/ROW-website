@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { Card } from '@/components/common/Card';
@@ -24,6 +24,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { assessmentService } from '@/services/assessmentService';
 import { auditService } from '@/services/auditService';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 
 interface AssessmentRecord {
     patient_id: string;
@@ -53,10 +54,32 @@ interface AssessmentRecord {
 export function AssessmentHistoryPage() {
     const [records, setRecords] = useState<AssessmentRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [fromDate, setFromDate] = useState('');
-    const [toDate, setToDate] = useState('');
-    const [followUpOnly, setFollowUpOnly] = useState(false);
+
+    // Filters live in the URL (not useState) so that navigating to View and
+    // pressing back restores them — the list otherwise remounts fresh.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const searchTerm = searchParams.get('q') || '';
+    const fromDate = searchParams.get('from') || '';
+    const toDate = searchParams.get('to') || '';
+    const followUpOnly = searchParams.get('followUp') === '1';
+
+    const setFilterParam = useCallback((key: string, value: string | null) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            if (!value) next.delete(key);
+            else next.set(key, value);
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
+    const clearFilters = useCallback(() => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            ['q', 'from', 'to', 'followUp'].forEach(key => next.delete(key));
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const navigate = useNavigate();
     const { canDeleteRecords, canExportData } = usePermissions();
@@ -170,7 +193,7 @@ export function AssessmentHistoryPage() {
 
     const filtered = records.filter(r => {
         const matchesSearch =
-            r.patient_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            nameMatchesSearch(r.patient_name, searchTerm) ||
             r.patient_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
             r.primary_condition.toLowerCase().includes(searchTerm.toLowerCase()) ||
             r.village.toLowerCase().includes(searchTerm.toLowerCase());
@@ -290,7 +313,7 @@ export function AssessmentHistoryPage() {
                             placeholder="Search by Name, Patient ID, Condition, Village..."
                             className="pl-10"
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={(e) => setFilterParam('q', e.target.value)}
                         />
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -302,18 +325,18 @@ export function AssessmentHistoryPage() {
                             type="date"
                             className="w-36 sm:w-40"
                             value={fromDate}
-                            onChange={(e) => setFromDate(e.target.value)}
+                            onChange={(e) => setFilterParam('from', e.target.value)}
                         />
                         <span className="text-gray-400">to</span>
                         <Input
                             type="date"
                             className="w-36 sm:w-40"
                             value={toDate}
-                            onChange={(e) => setToDate(e.target.value)}
+                            onChange={(e) => setFilterParam('to', e.target.value)}
                         />
                         {(searchTerm || fromDate || toDate || followUpOnly) && (
                             <button
-                                onClick={() => { setSearchTerm(''); setFromDate(''); setToDate(''); setFollowUpOnly(false); }}
+                                onClick={clearFilters}
                                 className="text-xs font-bold text-primary hover:underline px-2"
                             >
                                 Clear All
@@ -337,7 +360,7 @@ export function AssessmentHistoryPage() {
 
                         <button
                             type="button"
-                            onClick={() => setFollowUpOnly(prev => !prev)}
+                            onClick={() => setFilterParam('followUp', followUpOnly ? null : '1')}
                             title="Show only patients who have at least one follow-up session"
                             className={`text-left p-4 sm:p-5 rounded-2xl border shadow-sm min-w-0 transition-colors ${followUpOnly
                                 ? 'bg-green-50 border-green-300 ring-2 ring-green-200'

@@ -20,6 +20,7 @@ import type { OfflineBeneficiary } from '@/lib/db';
 import type { ServiceEntry } from '@/types/serviceEntry';
 import type { InitialAssessment } from '@/types/assessment';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useGoBack } from '@/hooks/useGoBack';
 import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
 
 interface Service {
@@ -62,6 +63,7 @@ const CONDITION_COLORS: Record<string, string> = {
 export function BeneficiaryProfilePage() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const goBackToList = useGoBack('/beneficiary/list');
     const [beneficiary, setBeneficiary] = useState<OfflineBeneficiary | null>(null);
     const [services, setServices] = useState<Service[]>([]);
     const [assessments, setAssessments] = useState<AssessmentSummary[]>([]);
@@ -202,7 +204,7 @@ export function BeneficiaryProfilePage() {
         return (
             <div className="text-center py-12">
                 <p className="text-text-muted mb-4">Beneficiary not found.</p>
-                <Button onClick={() => navigate('/beneficiary/list')}>Back to List</Button>
+                <Button onClick={goBackToList}>Back to List</Button>
             </div>
         );
     }
@@ -221,7 +223,7 @@ export function BeneficiaryProfilePage() {
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => navigate('/beneficiary/list')}
+                        onClick={goBackToList}
                         className="p-2 hover:bg-gray-100 rounded-full transition-colors text-text-muted"
                     >
                         <ArrowLeft size={20} />

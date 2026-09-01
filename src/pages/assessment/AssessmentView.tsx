@@ -5,6 +5,7 @@ import { Button } from '@/components/common/Button';
 import { Loader } from '@/components/common/Loader';
 import { assessmentService } from '@/services/assessmentService';
 import { exerciseService } from '@/services/exerciseService';
+import { useGoBack } from '@/hooks/useGoBack';
 import { getVASCategory, isDisabilityCondition } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import type { PatientRecommendedExercise } from '@/types/exercise';
@@ -51,6 +52,7 @@ const conditionColors: Record<string, string> = {
 export function AssessmentViewPage() {
     const { patientId } = useParams<{ patientId: string }>();
     const navigate = useNavigate();
+    const goBackToHistory = useGoBack('/assessments/history');
 
     const [initial, setInitial] = useState<InitialAssessment | null>(null);
     const [clinical, setClinical] = useState<ClinicalAssessment | null>(null);
@@ -84,7 +86,7 @@ export function AssessmentViewPage() {
             <div className="text-center py-24">
                 <XCircle size={48} className="text-red-300 mx-auto mb-4" />
                 <p className="text-gray-500 font-medium">Patient not found.</p>
-                <Button variant="outline" className="mt-4" onClick={() => navigate('/assessments/history')}>
+                <Button variant="outline" className="mt-4" onClick={goBackToHistory}>
                     <ArrowLeft size={16} className="mr-2 inline" /> Back to History
                 </Button>
             </div>
@@ -112,7 +114,7 @@ export function AssessmentViewPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Button variant="outline" onClick={() => navigate('/assessments/history')}>
+                    <Button variant="outline" onClick={goBackToHistory}>
                         <ArrowLeft size={16} className="mr-2 inline" /> Back
                     </Button>
                     <Button onClick={() => navigate(`/assessments/edit/${initial.patient_id}`)}>

@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { Search, User, Loader2, X, WifiOff } from 'lucide-react';
 import { Card } from '@/components/common/Card';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 
 interface Beneficiary {
     id: string;
@@ -79,6 +80,12 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
         const lower = term.toLowerCase();
         const isCurrentlyOnline = navigator.onLine;
 
+        // Beyond the exact substring match, also widen the server query using a
+        // short name prefix — this pulls in candidates like "Adeeb" for a typed
+        // "Adib" that a plain substring ilike would miss — then the fuzzy filter
+        // below trims that wider pool back down to genuinely close matches.
+        const prefix = term.slice(0, Math.min(2, term.length));
+
         // Run Supabase and Dexie searches independently so a Supabase failure
         // never prevents offline/local results from appearing.
         const supabaseSearch = isCurrentlyOnline
@@ -88,8 +95,8 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
                     .select('id, name, file_number')
                     // Use PostgREST `*` wildcard — avoids URL percent-encoding issues
                     // that occur when `%` is used directly in .or() filter strings.
-                    .or(`name.ilike.*${term}*,file_number.ilike.*${term}*`)
-                    .limit(10)
+                    .or(`name.ilike.*${term}*,file_number.ilike.*${term}*,name.ilike.${prefix}*`)
+                    .limit(25)
               ).catch(() => ({ data: [] as Beneficiary[], error: null }))
             : Promise.resolve({ data: [] as Beneficiary[], error: null });
 
@@ -101,7 +108,7 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
             .toArray()
             .then(all =>
                 all.filter(b =>
-                    b.name.toLowerCase().includes(lower) ||
+                    nameMatchesSearch(b.name, term) ||
                     (b.offline_token ?? '').toLowerCase().includes(lower) ||
                     (b.file_number != null && b.file_number.toLowerCase().includes(lower))
                 )
@@ -110,7 +117,11 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
 
         const [supabaseResult, dexieRecords] = await Promise.all([supabaseSearch, dexieSearch]);
 
-        const onlineResults: Beneficiary[] = (supabaseResult.data ?? []) as Beneficiary[];
+        // Trim the widened prefix pool back down to real matches (typo-tolerant
+        // name match, or an exact substring hit on name/file number).
+        const onlineResults: Beneficiary[] = ((supabaseResult.data ?? []) as Beneficiary[])
+            .filter(b => nameMatchesSearch(b.name, term) || (b.file_number ?? '').toLowerCase().includes(lower))
+            .slice(0, 10);
 
         // Exclude Dexie records whose server UUID already appears in Supabase results
         // so the same beneficiary never shows twice in the dropdown.

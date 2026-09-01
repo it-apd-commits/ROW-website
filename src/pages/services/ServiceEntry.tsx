@@ -14,6 +14,7 @@ import { SyncService } from '@/lib/syncService';
 import type { ServiceEntry, ServiceEntryPayload } from '@/types/serviceEntry';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useGoBack } from '@/hooks/useGoBack';
 import { auditService } from '@/services/auditService';
 
 export function ServiceEntryPage() {
@@ -21,6 +22,7 @@ export function ServiceEntryPage() {
     const [searchParams] = useSearchParams();
     const beneficiaryIdFromUrl = searchParams.get('beneficiary_id');
     const navigate = useNavigate();
+    const goBackToHistory = useGoBack('/services/history');
     const { role } = usePermissions();
     const isAdmin = role === 'Admin';
     const isOnline = useOnlineStatus();
@@ -419,12 +421,12 @@ export function ServiceEntryPage() {
                                         <Input
                                             name="total_hours"
                                             type="number"
-                                            step="1"
-                                            min="1"
-                                            value={formData.total_hours ? Math.round(formData.total_hours * 60) : ''}
+                                            step="any"
+                                            min="0.1"
+                                            value={formData.total_hours ? Math.round(formData.total_hours * 60 * 100) / 100 : ''}
                                             onChange={(e) => handleChange('total_hours', parseFloat(e.target.value) / 60)}
                                             required
-                                            placeholder="e.g. 30"
+                                            placeholder="e.g. 30 or 7.5"
                                         />
                                     </div>
                                 </div>
@@ -474,15 +476,15 @@ export function ServiceEntryPage() {
                                                     <Input
                                                         name={`total_hours_${idx}`}
                                                         type="number"
-                                                        step="1"
-                                                        min="1"
+                                                        step="any"
+                                                        min="0.1"
                                                         value={row.minutes}
                                                         onChange={(e) => {
                                                             const v = e.target.value;
                                                             setSelectedServices(prev => prev.map((s, i) => i === idx ? { ...s, minutes: v } : s));
                                                         }}
                                                         required
-                                                        placeholder="e.g. 15"
+                                                        placeholder="e.g. 15 or 7.5"
                                                     />
                                                 </div>
                                                 <button
@@ -621,7 +623,7 @@ export function ServiceEntryPage() {
                         <Button
                             type="button"
                             variant="secondary"
-                            onClick={() => navigate('/services/history')}
+                            onClick={goBackToHistory}
                             className="w-full sm:w-auto px-8 h-12 text-base font-bold bg-gray-100 hover:bg-gray-200 border-none text-gray-600"
                         >
                             Cancel

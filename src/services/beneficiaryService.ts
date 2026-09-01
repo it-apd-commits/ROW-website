@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { db } from '@/lib/db';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 
 export interface UpdateResult {
     success: boolean;
@@ -57,17 +58,23 @@ export const findOrCreateBeneficiary = async (
     }
 
     if (!input.forceCreate && name) {
+        // Widen with a short name prefix so a typo'd entry (e.g. "Adib" for an
+        // already-registered "Adeeb") still surfaces as a candidate — a plain
+        // substring ilike would miss it entirely. The fuzzy filter below trims
+        // this wider pool back down to genuinely close matches.
+        const prefix = name.slice(0, Math.min(2, name.length));
         let query = supabase
             .from('beneficiaries')
             .select('id, name, mobile_no, city, district')
-            .ilike('name', `%${name}%`);
+            .or(`name.ilike.*${name}*,name.ilike.${prefix}*`);
 
         if (city) query = query.ilike('city', city);
         else if (district) query = query.ilike('district', district);
 
-        const { data: nameMatches } = await query.limit(5);
+        const { data: candidates } = await query.limit(20);
+        const nameMatches = (candidates ?? []).filter(c => nameMatchesSearch(c.name, name)).slice(0, 5);
 
-        if (nameMatches && nameMatches.length > 0) {
+        if (nameMatches.length > 0) {
             return { matchType: 'needs_confirmation', candidates: nameMatches };
         }
     }

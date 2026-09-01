@@ -18,6 +18,7 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { getOutcomes, summarize } from '@/services/outcomeEvaluationService';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import { getAllScales, getConditions, getScalesByCondition } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
@@ -96,7 +97,7 @@ export function ReportsPage() {
     }, [fetchReport]);
 
     const filteredRows = rows.filter(r => {
-        const matchesSearch = r.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        const matchesSearch = nameMatchesSearch(r.name, searchTerm) ||
             r.patient_id.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesCard = cardFilter === null ? true
             : cardFilter === 'endline_completed' ? r.current_date != null

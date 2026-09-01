@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { DailyTokenService, type DailyToken } from '@/services/dailyTokenService';
 import { findOrCreateBeneficiary, type BeneficiaryCandidate } from '@/services/beneficiaryService';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import {
     Users,
     UserPlus,
@@ -206,14 +207,21 @@ export function TokenManagementPage() {
             return;
         }
 
+        // Widen with a short name prefix so typo'd names (e.g. "Adib" for
+        // "Adeeb") still surface candidates, then trim back to real matches
+        // with the fuzzy filter below.
+        const prefix = query.slice(0, Math.min(2, query.length));
         const { data, error } = await supabase
             .from('beneficiaries')
             .select('id, name, mobile_no, district, city')
-            .or(`name.ilike.%${query}%,mobile_no.ilike.%${query}%`)
-            .limit(5);
+            .or(`name.ilike.%${query}%,mobile_no.ilike.%${query}%,name.ilike.${prefix}%`)
+            .limit(20);
 
         if (!error && data) {
-            setBeneficiaries(data);
+            const matches = data
+                .filter(b => nameMatchesSearch(b.name, query) || (b.mobile_no ?? '').includes(query))
+                .slice(0, 5);
+            setBeneficiaries(matches);
         }
     }, []);
 

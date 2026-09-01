@@ -48,28 +48,42 @@ function SidebarContent({ collapsed, mobileOpen, onMobileClose, onToggleCollapse
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const handleSearch = async (query: string) => {
-        setSearchQuery(query);
-        latestQueryRef.current = query;
-        if (query.trim().length < 2) {
+    const handleSearch = async (rawQuery: string) => {
+        setSearchQuery(rawQuery);
+        latestQueryRef.current = rawQuery;
+        const query = rawQuery.trim();
+        if (query.length < 2) {
             setSearchResults([]);
             setIsSearching(false);
             return;
         }
 
         try {
-            const { data, error } = await supabase
-                .from('beneficiaries')
-                .select('id, name, file_number')
-                // Use PostgREST `*` wildcard — avoids URL percent-encoding issues
-                // that occur when `%` is used directly in .or() filter strings.
-                .or(`name.ilike.*${query}*,file_number.ilike.*${query}*`)
-                .limit(5);
+            // Run file-number and name matches as separate queries, each with
+            // their own limit, so a file number match (e.g. "MCB...") always
+            // gets a reserved slot instead of competing with name matches inside
+            // a single capped .or() query — with no ORDER BY, Postgres can fill
+            // all 5 slots with name matches before a specific file number is
+            // ever considered, making it look like file-number search is broken.
+            const [fileNumberResult, nameResult] = await Promise.all([
+                supabase.from('beneficiaries').select('id, name, file_number').ilike('file_number', `%${query}%`).limit(5),
+                supabase.from('beneficiaries').select('id, name, file_number').ilike('name', `%${query}%`).limit(5),
+            ]);
 
-            if (error) throw error;
+            if (fileNumberResult.error) throw fileNumberResult.error;
+            if (nameResult.error) throw nameResult.error;
+
             // Ignore stale responses from earlier, slower queries
-            if (latestQueryRef.current !== query) return;
-            setSearchResults(data || []);
+            if (latestQueryRef.current !== rawQuery) return;
+
+            const seen = new Set<string>();
+            const merged = [...(fileNumberResult.data || []), ...(nameResult.data || [])].filter(b => {
+                if (seen.has(b.id)) return false;
+                seen.add(b.id);
+                return true;
+            });
+
+            setSearchResults(merged.slice(0, 8));
             setIsSearching(true);
         } catch (err) {
             console.error('Search error:', err);
