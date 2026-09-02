@@ -4,6 +4,7 @@ import {
     MapPin,
     TrendingUp,
     Stethoscope,
+    ClipboardList,
     ArrowUpRight,
     ArrowRight,
     Filter
@@ -16,8 +17,10 @@ import { BeneficiaryRegistrationChart } from '@/components/dashboard/Beneficiary
 import { ServiceDashboardChart } from '@/components/dashboard/ServiceDashboardChart';
 import { AssessmentVsReassessmentChart } from '@/components/dashboard/AssessmentVsReassessmentChart';
 import { DonorBreakdownTable } from '@/components/dashboard/DonorBreakdownTable';
+import { ReferralReasonBreakdownTable } from '@/components/dashboard/ReferralReasonBreakdownTable';
 import { GenderBreakdownChart } from '@/components/dashboard/GenderBreakdownChart';
 import type { DonorBreakdownRow } from '@/components/dashboard/DonorBreakdownTable';
+import type { ReferralReasonRow } from '@/components/dashboard/ReferralReasonBreakdownTable';
 import type { TimeFrame, ChartFilter } from '@/types/dashboard';
 import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
 
@@ -38,7 +41,8 @@ export function DashboardPage() {
         totalBeneficiaries: 0,
         activeBuses: 0,
         campsConducted: 0,
-        servicesProvided: 0
+        servicesProvided: 0,
+        referralsNeeded: 0
     });
 
     const [upcomingCamps, setUpcomingCamps] = useState<MappedCamp[]>([]);
@@ -46,6 +50,9 @@ export function DashboardPage() {
     // Donor breakdown + filter state
     const [donorBreakdown, setDonorBreakdown] = useState<DonorBreakdownRow[]>([]);
     const [donorFilter, setDonorFilter] = useState<string>('all');
+
+    // Referral reason breakdown (Service Referral / Assessment Needed)
+    const [referralBreakdown, setReferralBreakdown] = useState<ReferralReasonRow[]>([]);
 
     // Global Filter State
     const [timeframe, setTimeframe] = useState<TimeFrame>('all');
@@ -121,6 +128,16 @@ export function DashboardPage() {
                     return q;
                 });
 
+                // Initial assessments — for the Service Referral / Assessment Needed
+                // count and its Reason for Referral breakdown, date-filtered on
+                // assessment_date.
+                const iaRowsPromise = fetchAllRows<{ service_referral_needed: string | null; referral_reason: string | null }>(() => {
+                    let q = supabase.from('initial_assessment').select('service_referral_needed, referral_reason');
+                    if (globalFilter.startDate) q = q.gte('assessment_date', globalFilter.startDate);
+                    if (globalFilter.endDate) q = q.lte('assessment_date', globalFilter.endDate);
+                    return q;
+                });
+
                 const todayStr = new Date().toISOString().split('T')[0];
 
                 // Run queries in parallel
@@ -131,6 +148,7 @@ export function DashboardPage() {
                     { data: schedules, error: sError },
                     benList,
                     srvList,
+                    iaList,
                 ] = await Promise.all([
                     bQuery,
                     tQuery,
@@ -144,6 +162,7 @@ export function DashboardPage() {
                         .limit(10),
                     bRowsPromise,
                     sRowsPromise,
+                    iaRowsPromise,
                 ]);
 
                 if (bError) throw bError;
@@ -190,6 +209,20 @@ export function DashboardPage() {
 
                 setDonorBreakdown(breakdown);
 
+                // ---- Referral reason breakdown computation ----
+
+                const referralRows = iaList.filter(r => !!r.service_referral_needed);
+                const reasonCounts: Record<string, number> = {};
+                referralRows.forEach(r => {
+                    const reason = r.referral_reason || 'Unspecified';
+                    reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+                });
+                const referralReasonRows: ReferralReasonRow[] = Object.entries(reasonCounts)
+                    .map(([reason, count]) => ({ reason, count }))
+                    .sort((a, b) => b.count - a.count);
+
+                setReferralBreakdown(referralReasonRows);
+
                 const uniqueBuses = trips ? new Set(trips.map(t => t.bus_number)).size : 0;
                 const campsConducted = trips ? trips.length : 0;
 
@@ -198,6 +231,7 @@ export function DashboardPage() {
                     activeBuses: uniqueBuses,
                     campsConducted,
                     servicesProvided: servicesCount || 0,
+                    referralsNeeded: referralRows.length,
                 });
 
                 if (schedules) {
@@ -228,7 +262,7 @@ export function DashboardPage() {
     // change on another device, or when this tab regains focus, so the stat
     // boxes don't go stale between page loads.
     useRealtimeSync({
-        tables: ['beneficiaries', 'service_entries', 'trips', 'monthly_schedules'],
+        tables: ['beneficiaries', 'service_entries', 'trips', 'monthly_schedules', 'initial_assessment'],
         onChange: fetchDashboardData,
     });
 
@@ -290,6 +324,15 @@ export function DashboardPage() {
             color: 'text-orange-600',
             bg: 'bg-orange-50',
             link: '/services/history'
+        },
+        {
+            label: 'Referrals / Assessments Needed',
+            value: dynamicStats.referralsNeeded.toLocaleString(),
+            icon: ClipboardList,
+            change: 'Pending',
+            color: 'text-teal-600',
+            bg: 'bg-teal-50',
+            link: '/assessments/history'
         },
     ];
 
@@ -371,7 +414,7 @@ export function DashboardPage() {
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 {stats.map((stat, index) => (
                     <Link key={index} to={stat.link} className="block group">
                         <Card className="p-4 border-l-4 border-l-primary hover:shadow-lg transition-all duration-300 group-hover:-translate-y-1 cursor-pointer h-full">
@@ -415,6 +458,7 @@ export function DashboardPage() {
                 <div className="space-y-4 md:space-y-6">
                     <GenderBreakdownChart filter={chartFilter} />
                     <DonorBreakdownTable rows={donorBreakdown} isLoading={isLoading} selectedDonor={donorFilter} />
+                    <ReferralReasonBreakdownTable rows={referralBreakdown} isLoading={isLoading} />
 
                     <Card>
                         <div className="flex items-center justify-between mb-4">

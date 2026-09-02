@@ -25,6 +25,7 @@ export function AssessmentEntryPage() {
     // Demographics handed over from "Save & Continue to Assessment" on Add Beneficiary.
     const prefill = (location.state as { prefillBeneficiary?: {
         name?: string; age?: string; gender?: string; mobileNo?: string; city?: string; address?: string;
+        beneficiaryId?: string; beneficiaryOfflineToken?: string;
     } } | null)?.prefillBeneficiary;
     const isOnline = useOnlineStatus();
     const [activeStep, setActiveStep] = useState<Step>(1);
@@ -38,6 +39,8 @@ export function AssessmentEntryPage() {
             gender: prefill.gender || '',
             phone: prefill.mobileNo || '',
             village: prefill.city || prefill.address || '',
+            beneficiary_id: prefill.beneficiaryId ?? null,
+            beneficiary_offline_token: prefill.beneficiaryOfflineToken ?? null,
         } : {}),
     }));
     const [isLoadingExisting, setIsLoadingExisting] = useState(false);

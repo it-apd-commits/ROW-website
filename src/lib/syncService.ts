@@ -36,6 +36,23 @@ export const SyncService = {
         return syncInFlight;
     },
 
+    // Backfills beneficiary_id on any initial assessments that were created
+    // (offline) for this beneficiary before its real ID was known — they were
+    // stamped with beneficiary_offline_token as a placeholder at the time.
+    async linkPendingAssessments(offlineToken: string, beneficiaryId: string) {
+        const updatedCount = await db.offline_initial_assessments
+            .where('beneficiary_offline_token')
+            .equals(offlineToken)
+            .modify({ beneficiary_id: beneficiaryId });
+        if (updatedCount > 0) {
+            console.log(`[SyncService] Linked ${updatedCount} assessment ${updatedCount === 1 ? 'record' : 'records'} to beneficiary ${beneficiaryId}`);
+        }
+        await supabase
+            .from('initial_assessment')
+            .update({ beneficiary_id: beneficiaryId })
+            .eq('beneficiary_offline_token', offlineToken);
+    },
+
     async syncPendingBeneficiaries() {
         const recordsToSync = await db.beneficiaries
             .where('sync_status')
@@ -66,7 +83,7 @@ export const SyncService = {
                         // otherwise those entries defer forever on the offline token.
                         const { data: existing } = await supabase
                             .from('beneficiaries')
-                            .select('token_no, file_number')
+                            .select('id, token_no, file_number')
                             .eq('offline_token', record.offline_token)
                             .maybeSingle();
                         await db.beneficiaries.update(record.id!, {
@@ -83,6 +100,9 @@ export const SyncService = {
                                 .from('service_entries')
                                 .update({ file_number: existing.file_number })
                                 .eq('file_number', record.offline_token);
+                        }
+                        if (existing?.id && record.offline_token) {
+                            await SyncService.linkPendingAssessments(record.offline_token, existing.id);
                         }
                     } else {
                         throw error;
@@ -110,6 +130,9 @@ export const SyncService = {
                             .from('service_entries')
                             .update({ file_number: data.file_number })
                             .eq('file_number', record.offline_token);
+                    }
+                    if (record.offline_token) {
+                        await SyncService.linkPendingAssessments(record.offline_token, data.id);
                     }
                     console.log(`[SyncService] Synced beneficiary ${record.name} (Token: ${data.token_no}, File: ${data.file_number})`);
                 }

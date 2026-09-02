@@ -112,6 +112,13 @@ export class ROWDatabase extends Dexie {
             offline_clinical_assessments: 'patient_id, sync_status',
             offline_follow_up_assessments: '[patient_id+session_number], patient_id, sync_status'
         });
+        // Indexes beneficiary_offline_token so the sync process can look up
+        // assessments awaiting a beneficiary's real ID (see beneficiary_id on
+        // InitialAssessment). Purely additive — existing rows just get an
+        // undefined value for the new index until they're touched.
+        this.version(5).stores({
+            offline_initial_assessments: 'patient_id, sync_status, assessment_date, beneficiary_offline_token'
+        });
     }
 }
 

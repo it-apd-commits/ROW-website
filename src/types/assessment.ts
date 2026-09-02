@@ -13,6 +13,13 @@ export interface InitialAssessment {
     service_referral_needed?: string | null;
     referral_reason?: string | null;
     document_type: string;
+    // Real link to beneficiaries.id, set once known. When an assessment is
+    // created for a beneficiary that was just registered offline (no real ID
+    // yet), beneficiary_offline_token holds that beneficiary's offline_token
+    // instead, and the sync process backfills beneficiary_id once the
+    // beneficiary itself finishes syncing.
+    beneficiary_id?: string | null;
+    beneficiary_offline_token?: string | null;
     created_at?: string;
 }
 

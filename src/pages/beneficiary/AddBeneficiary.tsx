@@ -97,7 +97,10 @@ export function AddBeneficiaryPage() {
 
     // Demographics carried into the Initial Assessment form via router state.
     // Works offline: the data is already in memory, so no beneficiary id / refetch is needed.
-    const goToAssessment = () => {
+    // beneficiaryId is the real beneficiaries.id when already known (existing
+    // stub, or a new beneficiary that synced immediately); beneficiaryOfflineToken
+    // is the fallback when it isn't yet (new beneficiary saved while offline).
+    const goToAssessment = (beneficiaryId?: string | null, beneficiaryOfflineToken?: string) => {
         navigate('/assessments/new', {
             state: {
                 prefillBeneficiary: {
@@ -107,6 +110,8 @@ export function AddBeneficiaryPage() {
                     mobileNo: formData.mobileNo,
                     city: formData.city,
                     address: formData.address,
+                    beneficiaryId: beneficiaryId ?? undefined,
+                    beneficiaryOfflineToken,
                 },
             },
         });
@@ -152,7 +157,9 @@ export function AddBeneficiaryPage() {
 
                 if (error) throw error;
                 await auditService.log('BENEFICIARY_REGISTRATION_COMPLETED', { beneficiary_id: completeId, name: formData.name });
-                if (continueToAssessment) { goToAssessment(); return; }
+                // A stub already exists in Supabase with a real ID, so there's no
+                // offline-linking gap here.
+                if (continueToAssessment) { goToAssessment(completeId); return; }
                 setShowSuccessModal(true);
                 return;
             }
@@ -171,14 +178,20 @@ export function AddBeneficiaryPage() {
                 sync_status: 'pending'
             });
 
+            // Real ID once the insert succeeds; stays null if offline or the
+            // immediate insert failed, in which case the offline_token below is
+            // the only identifier available until this beneficiary syncs later.
+            let insertedId: string | null = null;
+
             if (isOnline) {
-                const { error } = await supabase
+                const { data: inserted, error } = await supabase
                     .from('beneficiaries')
                     .insert([beneficiaryData])
                     .select('*')
                     .single();
 
                 if (!error) {
+                    insertedId = inserted.id;
                     await db.beneficiaries.where('offline_token').equals(tempToken).modify({
                         sync_status: 'synced'
                     });
@@ -188,7 +201,13 @@ export function AddBeneficiaryPage() {
             }
 
             await auditService.log('BENEFICIARY_CREATED', { name: formData.name, offline: !isOnline });
-            if (continueToAssessment) { goToAssessment(); return; }
+            if (continueToAssessment) {
+                // Real ID when we have one; otherwise the offline_token bridges the
+                // gap until SyncService backfills the assessment's beneficiary_id
+                // once this beneficiary itself finishes syncing.
+                goToAssessment(insertedId, insertedId ? undefined : tempToken);
+                return;
+            }
             setShowSuccessModal(true);
         } catch (error) {
             console.error('Error saving beneficiary:', error);

@@ -112,18 +112,22 @@ export function BeneficiaryProfilePage() {
                 setServices(mappedServices);
             }
 
-            // Fetch assessments. There's no beneficiary_id/file_number column on the
-            // assessment tables — match best-effort by name or phone, the same
-            // soft-linking approach the service history lookup above already uses.
-            // Two separate queries (not a combined .or() filter) so a name containing
-            // a comma/parenthesis can't corrupt the filter string and silently zero
-            // out both matches, and so name matching can be a tolerant substring
-            // search instead of requiring an exact full-string match.
+            // Fetch assessments. beneficiary_id is the reliable link when set (new
+            // assessments, and older rows backfilled by a unique phone match — see
+            // add_beneficiary_id_to_initial_assessment.sql), but plenty of rows still
+            // predate it, so name/phone matching remains as a fallback for those.
+            // Separate queries (not a combined .or() filter) so a name containing a
+            // comma/parenthesis can't corrupt the filter string and silently zero out
+            // every match, and so name matching can be a tolerant substring search
+            // instead of requiring an exact full-string match.
             let assessmentSummaries: AssessmentSummary[] = [];
             const nameMatch = (bData.name || '').trim();
             const phoneMatch = (bData.mobile_no || '').trim();
-            if (nameMatch || phoneMatch) {
-                const [byName, byPhone] = await Promise.all([
+            if (bData.id || nameMatch || phoneMatch) {
+                const [byId, byName, byPhone] = await Promise.all([
+                    bData.id
+                        ? supabase.from('initial_assessment').select('*').eq('beneficiary_id', bData.id)
+                        : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
                     nameMatch
                         ? supabase.from('initial_assessment').select('*').ilike('patient_name', `%${nameMatch}%`)
                         : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
@@ -131,11 +135,12 @@ export function BeneficiaryProfilePage() {
                         ? supabase.from('initial_assessment').select('*').eq('phone', phoneMatch)
                         : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
                 ]);
+                if (byId.error) throw byId.error;
                 if (byName.error) throw byName.error;
                 if (byPhone.error) throw byPhone.error;
 
                 const seen = new Set<string>();
-                const initials = [...(byName.data || []), ...(byPhone.data || [])]
+                const initials = [...(byId.data || []), ...(byName.data || []), ...(byPhone.data || [])]
                     .filter((i: InitialAssessment) => (seen.has(i.patient_id) ? false : (seen.add(i.patient_id), true)))
                     .sort((a: InitialAssessment, b: InitialAssessment) => b.assessment_date.localeCompare(a.assessment_date));
 

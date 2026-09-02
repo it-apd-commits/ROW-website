@@ -91,6 +91,10 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
             gender: b.gender,
             phone: b.mobile_no || data.phone || '',
             village: b.city || b.address || data.village || '',
+            // Selected from a live search of the beneficiaries table, so this is
+            // always a real, already-synced ID.
+            beneficiary_id: b.id,
+            beneficiary_offline_token: null,
         });
     };
 
@@ -156,6 +160,8 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                 service_referral_needed: isEI ? null : (data.service_referral_needed || null),
                 referral_reason: isEI ? null : (data.referral_reason || null),
                 document_type: data.document_type!,
+                beneficiary_id: data.beneficiary_id ?? null,
+                beneficiary_offline_token: data.beneficiary_offline_token ?? null,
             };
             const result = isEdit
                 ? await assessmentService.updateInitial(payload.patient_id, payload)
