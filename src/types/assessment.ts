@@ -112,6 +112,7 @@ export interface FollowUpAssessment {
     strength: string | null;
     vas_previous: number | null;
     vas_current: number | null;
+    vas_category_pre: string | null;
     vas_post: number | null;
     vas_category_post: string | null;
     // Neuro

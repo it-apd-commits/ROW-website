@@ -102,6 +102,11 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         return null;
     })();
 
+    // Baseline VAS category from the clinical assessment — carried into every
+    // follow-up session as-is, not recalculated from that session's own score.
+    const vasCategoryPre = clinicalData?.vas_category_pre
+        ?? (clinicalData?.vas_pre != null ? getVASCategory(clinicalData.vas_pre) : null);
+
     const newForm = (): Partial<FollowUpAssessment> => ({
         patient_id: patientId,
         visit_date: today,
@@ -110,6 +115,9 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         side_of_limb_affected: initialData?.side_of_limb_affected,
         joint_involved: initialData?.joint_involved,
         vas_previous: latestVasCurrent,
+        // First follow-up has no prior session to draw from, so pre-fill it with
+        // the clinical assessment's baseline VAS score instead of leaving it blank.
+        vas_current: history.length === 0 ? (clinicalData?.vas_pre ?? null) : null,
     });
 
     const [data, setData] = useState<Partial<FollowUpAssessment>>(newForm());
@@ -248,6 +256,10 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         strength: condition === 'Neuro Muscular Painful Condition' ? data.strength || null : null,
         vas_previous: condition === 'Neuro Muscular Painful Condition' ? (data.vas_previous ?? null) : null,
         vas_current: condition === 'Neuro Muscular Painful Condition' ? Number(data.vas_current) : null,
+        // Not derived from this session's own score — copied straight from the
+        // clinical assessment's baseline so it stays constant across every
+        // follow-up session for this patient.
+        vas_category_pre: condition === 'Neuro Muscular Painful Condition' ? vasCategoryPre : null,
         vas_post: condition === 'Neuro Muscular Painful Condition' ? (data.vas_post != null ? Number(data.vas_post) : null) : null,
         vas_category_post: condition === 'Neuro Muscular Painful Condition' && data.vas_post != null ? getVASCategory(Number(data.vas_post)) : null,
         neuro_strength: condition === 'Neurological Condition' ? data.neuro_strength || null : null,
@@ -657,6 +669,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                     error={errors.vas_current}
                                     required
                                 />
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-sm font-medium text-text-main">VAS Category (Pre)</label>
+                                    <div className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-text-muted">
+                                        {vasCategoryPre ?? '—'}
+                                    </div>
+                                </div>
                                 <Input
                                     label="VAS Score (Post-Treatment)"
                                     type="number"
