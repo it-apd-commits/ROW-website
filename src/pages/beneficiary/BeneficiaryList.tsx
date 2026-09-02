@@ -108,18 +108,40 @@ export function BeneficiaryListPage() {
         enabled: isOnline,
     });
 
-    // Remember scroll position on the way out so returning via the browser/back
-    // button (e.g. from a beneficiary's profile) restores the same spot in the
-    // filtered list instead of snapping back to the top. The app's main content
-    // area scrolls independently of the window, so both are captured — whichever
-    // one actually moved is the one that matters.
+    // Remember scroll position so returning via the browser/back button (e.g.
+    // from a beneficiary's profile) restores the same spot in the filtered list
+    // instead of snapping back to the top. The app's main content area scrolls
+    // independently of the window, so both are tracked — whichever one actually
+    // moved is the one that matters.
+    //
+    // This saves continuously on every scroll event rather than snapshotting
+    // scrollTop once on unmount. A snapshot-on-unmount is not safe under
+    // StrictMode: navigating back to this page causes it to mount, and
+    // StrictMode's dev-only effect setup->cleanup->setup dance fires this
+    // effect's cleanup once immediately, before the list has rendered anything
+    // (scrollTop is still 0 at that instant) — silently overwriting the correct
+    // value that was saved moments earlier when the page was left.
     useEffect(() => {
         const scrollEl = document.querySelector('main');
-        return () => {
+        if (!scrollEl) return;
+        let queued = false;
+        const save = () => {
+            queued = false;
             sessionStorage.setItem(SCROLL_POSITION_KEY, JSON.stringify({
-                main: scrollEl?.scrollTop ?? 0,
+                main: scrollEl.scrollTop,
                 window: window.scrollY,
             }));
+        };
+        const handleScroll = () => {
+            if (queued) return;
+            queued = true;
+            requestAnimationFrame(save);
+        };
+        scrollEl.addEventListener('scroll', handleScroll, { passive: true });
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => {
+            scrollEl.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('scroll', handleScroll);
         };
     }, []);
 
