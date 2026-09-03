@@ -27,6 +27,7 @@ import { auditService } from '@/services/auditService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import { normalizeDonor, UNSPECIFIED_DONOR, fetchAllRows } from '@/services/dashboardService';
 import { MultiSelectDropdown } from '@/components/common/MultiSelectDropdown';
+import { getMissingClinicalFields, getMissingFollowUpFields } from '@/utils/assessmentLogic';
 
 const UNSPECIFIED_LOCATION = 'Unspecified';
 const getAssessmentLocation = (r: { village: string }): string => r.village?.trim() || UNSPECIFIED_LOCATION;
@@ -58,6 +59,10 @@ interface AssessmentRecord {
     clinical_count: number;
     follow_up_count: number;
     latest_follow_up_date: string | null;
+    // Fields still blank on the saved clinical record / latest follow-up
+    // session, given what that patient's condition requires.
+    missing_clinical_fields: string[];
+    missing_follow_up_fields: string[];
     // Soft-linked from beneficiaries (see normalizeName/normalizePhone above)
     donor: string;
     // Offline tracking
@@ -159,25 +164,27 @@ export function AssessmentHistoryPage() {
                 if (initials.length > 0) {
                     const patientIds = initials.map((i) => i.patient_id);
 
-                    const clinicals = await fetchAllRows<{ patient_id: string }>(() =>
-                        supabase.from('clinical_assessment').select('patient_id').in('patient_id', patientIds)
+                    const clinicals = await fetchAllRows<Record<string, unknown> & { patient_id: string }>(() =>
+                        supabase.from('clinical_assessment').select('*').in('patient_id', patientIds)
                     );
 
-                    const clinicalSet = new Set(clinicals.map((c) => c.patient_id));
+                    const clinicalMap = new Map(clinicals.map((c) => [c.patient_id, c]));
 
-                    const followUps = await fetchAllRows<{ patient_id: string; visit_date: string; session_number: number }>(() =>
+                    const followUps = await fetchAllRows<Record<string, unknown> & { patient_id: string; visit_date: string; session_number: number }>(() =>
                         supabase
                             .from('follow_up_assessment')
-                            .select('patient_id, visit_date, session_number')
+                            .select('*')
                             .in('patient_id', patientIds)
                             .order('session_number', { ascending: false })
                     );
 
-                    const followUpMap = new Map<string, { count: number; latestDate: string | null }>();
+                    const followUpMap = new Map<string, { count: number; latestDate: string | null; latestRecord: Record<string, unknown> }>();
                     followUps.forEach((f) => {
                         const existing = followUpMap.get(f.patient_id);
                         if (!existing) {
-                            followUpMap.set(f.patient_id, { count: 1, latestDate: f.visit_date });
+                            // First row seen per patient is the latest session, since
+                            // the query is ordered by session_number descending.
+                            followUpMap.set(f.patient_id, { count: 1, latestDate: f.visit_date, latestRecord: f });
                         } else {
                             existing.count++;
                         }
@@ -186,9 +193,11 @@ export function AssessmentHistoryPage() {
                     mapped = initials.map((i) => ({
                         ...i,
                         donor: resolveDonor(i.patient_name, i.phone),
-                        clinical_count: clinicalSet.has(i.patient_id) ? 1 : 0,
+                        clinical_count: clinicalMap.has(i.patient_id) ? 1 : 0,
                         follow_up_count: followUpMap.get(i.patient_id)?.count || 0,
                         latest_follow_up_date: followUpMap.get(i.patient_id)?.latestDate || null,
+                        missing_clinical_fields: getMissingClinicalFields(i.primary_condition, clinicalMap.get(i.patient_id)),
+                        missing_follow_up_fields: getMissingFollowUpFields(i.primary_condition, followUpMap.get(i.patient_id)?.latestRecord),
                     }));
                 }
             }
@@ -203,8 +212,8 @@ export function AssessmentHistoryPage() {
 
             const offlineMapped: AssessmentRecord[] = await Promise.all(
                 offlineOnly.map(async r => {
-                    const clinicalCount = await db.offline_clinical_assessments
-                        .where('patient_id').equals(r.patient_id).count();
+                    const clinicalRecords = await db.offline_clinical_assessments
+                        .where('patient_id').equals(r.patient_id).toArray();
                     const followUps = await db.offline_follow_up_assessments
                         .where('patient_id').equals(r.patient_id).toArray();
                     const latestFU = followUps.sort((a, b) => b.session_number - a.session_number)[0];
@@ -225,9 +234,11 @@ export function AssessmentHistoryPage() {
                         document_type: r.document_type,
                         created_at: r.created_at ?? new Date().toISOString(),
                         donor: resolveDonor(r.patient_name, r.phone),
-                        clinical_count: clinicalCount,
+                        clinical_count: clinicalRecords.length,
                         follow_up_count: followUps.length,
                         latest_follow_up_date: latestFU?.visit_date ?? null,
+                        missing_clinical_fields: getMissingClinicalFields(r.primary_condition, clinicalRecords[0]),
+                        missing_follow_up_fields: getMissingFollowUpFields(r.primary_condition, latestFU),
                         isOffline: true,
                         sync_status: r.sync_status,
                     };
@@ -577,6 +588,14 @@ export function AssessmentHistoryPage() {
                                             ) : (
                                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Pending</span>
                                             )}
+                                            {r.clinical_count > 0 && r.missing_clinical_fields.length > 0 && (
+                                                <div
+                                                    className="text-[10px] text-amber-600 mt-1 max-w-[160px]"
+                                                    title={`Missing: ${r.missing_clinical_fields.join(', ')}`}
+                                                >
+                                                    ⚠ Missing: {r.missing_clinical_fields.join(', ')}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="py-5">
                                             <div className="flex items-center gap-2">
@@ -586,6 +605,14 @@ export function AssessmentHistoryPage() {
                                             {r.latest_follow_up_date && (
                                                 <div className="text-[10px] text-gray-400">
                                                     Last: {new Date(r.latest_follow_up_date).toLocaleDateString([], { day: '2-digit', month: 'short' })}
+                                                </div>
+                                            )}
+                                            {r.follow_up_count > 0 && r.missing_follow_up_fields.length > 0 && (
+                                                <div
+                                                    className="text-[10px] text-amber-600 mt-1 max-w-[160px]"
+                                                    title={`Latest session missing: ${r.missing_follow_up_fields.join(', ')}`}
+                                                >
+                                                    ⚠ Missing: {r.missing_follow_up_fields.join(', ')}
                                                 </div>
                                             )}
                                         </td>

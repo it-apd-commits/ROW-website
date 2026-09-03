@@ -115,9 +115,9 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         side_of_limb_affected: initialData?.side_of_limb_affected,
         joint_involved: initialData?.joint_involved,
         vas_previous: latestVasCurrent,
-        // First follow-up has no prior session to draw from, so pre-fill it with
-        // the clinical assessment's baseline VAS score instead of leaving it blank.
-        vas_current: history.length === 0 ? (clinicalData?.vas_pre ?? null) : null,
+        // Pre-fill with the prior session's VAS score, or the clinical assessment's
+        // baseline VAS score for the first follow-up, so it auto-carries forward.
+        vas_current: history.length === 0 ? (clinicalData?.vas_pre ?? null) : latestVasCurrent,
     });
 
     const [data, setData] = useState<Partial<FollowUpAssessment>>(newForm());
@@ -653,12 +653,6 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
                                     error={errors.strength}
                                     required
                                 />
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-sm font-medium text-text-main">VAS Previous</label>
-                                    <div className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-text-muted">
-                                        {data.vas_previous ?? (isEditMode ? '—' : 'N/A (first session)')}
-                                    </div>
-                                </div>
                                 <Input
                                     label="VAS Score (Pre-Treatment)"
                                     type="number"
