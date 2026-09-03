@@ -12,8 +12,9 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { ImportFileNumbersModal } from '@/components/beneficiary/ImportFileNumbersModal';
 import { ImportBeneficiariesModal } from '@/components/beneficiary/ImportBeneficiariesModal';
 import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
+import { MultiSelectDropdown } from '@/components/common/MultiSelectDropdown';
 import { auditService } from '@/services/auditService';
-import { normalizeDonor } from '@/services/dashboardService';
+import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { OfflineBeneficiary } from '@/lib/db';
 
@@ -25,13 +26,13 @@ interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, un
 const UNSPECIFIED_LOCATION = 'Unspecified';
 const SCROLL_POSITION_KEY = 'beneficiaryList:scrollTop';
 
-// District is the broader, more consistent grouping for filtering; city/village
-// free text has too many spelling variants to make a clean dropdown.
+// City/village is the value shown and filtered on; district is only a fallback
+// for older records that never captured a city.
 function getBeneficiaryLocation(b: BeneficiaryItem): string {
-    const district = (b.district as string | undefined)?.trim();
-    if (district) return district;
     const city = (b.city as string | undefined)?.trim();
-    return city || UNSPECIFIED_LOCATION;
+    if (city) return city;
+    const district = (b.district as string | undefined)?.trim();
+    return district || UNSPECIFIED_LOCATION;
 }
 
 export function BeneficiaryListPage() {
@@ -52,7 +53,7 @@ export function BeneficiaryListPage() {
     const startDate = searchParams.get('from') || '';
     const endDate = searchParams.get('to') || '';
     const registrationFilter = (searchParams.get('status') as 'all' | 'pending' | 'complete') || 'all';
-    const locationFilter = searchParams.get('location') || 'all';
+    const locationFilter = searchParams.getAll('location');
     const donorFilter = searchParams.get('donor');
     const fileStatusFilter = (searchParams.get('fileStatus') as 'all' | 'assigned' | 'unassigned') || 'all';
 
@@ -65,17 +66,31 @@ export function BeneficiaryListPage() {
         }, { replace: true });
     }, [setSearchParams]);
 
+    const setLocationFilter = useCallback((values: string[]) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.delete('location');
+            values.forEach(v => next.append('location', v));
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
     const fetchBeneficiaries = useCallback(async () => {
         setIsLoading(true);
         try {
-            // 1. Fetch from Supabase (if online)
+            // 1. Fetch from Supabase (if online). Paginated via fetchAllRows: a
+            // single request is capped at Supabase's default 1000-row limit,
+            // which was silently truncating the list (and its location filter
+            // options) once the beneficiaries table passed 1000 rows.
             let serverData: BeneficiaryItem[] = [];
             if (isOnline) {
-                const { data, error } = await supabase
-                    .from('beneficiaries')
-                    .select('*')
-                    .order('created_at', { ascending: false });
-                if (!error) serverData = data || [];
+                try {
+                    serverData = await fetchAllRows<BeneficiaryItem>(() =>
+                        supabase.from('beneficiaries').select('*').order('created_at', { ascending: false })
+                    );
+                } catch (err) {
+                    console.error('Error fetching beneficiaries from Supabase:', err);
+                }
             }
 
             // 2. Fetch from IndexedDB (all pending/failed records)
@@ -269,7 +284,7 @@ export function BeneficiaryListPage() {
 
         const matchesDonor = !donorFilter || normalizeDonor(b.donor as string | null | undefined) === donorFilter;
 
-        const matchesLocation = locationFilter === 'all' || getBeneficiaryLocation(b) === locationFilter;
+        const matchesLocation = locationFilter.length === 0 || locationFilter.includes(getBeneficiaryLocation(b));
 
         const matchesFileStatus = fileStatusFilter === 'all'
             || (fileStatusFilter === 'assigned' ? !!b.file_number : !b.file_number);
@@ -289,7 +304,7 @@ export function BeneficiaryListPage() {
         new Set(beneficiaries.map(getBeneficiaryLocation))
     ).sort((a, b) => a.localeCompare(b));
 
-    const hasActiveFilters = !!(searchTerm || startDate || endDate || donorFilter || locationFilter !== 'all' || registrationFilter !== 'all' || fileStatusFilter !== 'all');
+    const hasActiveFilters = !!(searchTerm || startDate || endDate || donorFilter || locationFilter.length > 0 || registrationFilter !== 'all' || fileStatusFilter !== 'all');
 
     const clearFilters = () => {
         setSearchParams(prev => {
@@ -431,16 +446,12 @@ export function BeneficiaryListPage() {
                         </div>
                         <div>
                             <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">Location</label>
-                            <select
-                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-                                value={locationFilter}
-                                onChange={(e) => setFilterParam('location', e.target.value)}
-                            >
-                                <option value="all">All Locations</option>
-                                {locationOptions.map(loc => (
-                                    <option key={loc} value={loc}>{loc}</option>
-                                ))}
-                            </select>
+                            <MultiSelectDropdown
+                                options={locationOptions}
+                                selected={locationFilter}
+                                onChange={setLocationFilter}
+                                placeholder="All Locations"
+                            />
                         </div>
                         <div>
                             <label className="block text-[11px] uppercase font-bold text-text-muted mb-1 ml-1">Donor</label>

@@ -25,11 +25,12 @@ import {
     CloudCheck,
 } from 'lucide-react';
 import { ImportServicesModal } from '@/components/service/ImportServicesModal';
+import { MultiSelectDropdown } from '@/components/common/MultiSelectDropdown';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { auditService } from '@/services/auditService';
-import { normalizeDonor } from '@/services/dashboardService';
+import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
@@ -45,8 +46,10 @@ interface ExtendedServiceRecord extends ServiceEntry {
 }
 
 const UNSPECIFIED_LOCATION = 'Unspecified';
+// City/village is the value shown and filtered on; district is only a fallback
+// for older records that never captured a city.
 const resolveLocation = (district?: string | null, city?: string | null) =>
-    district?.trim() || city?.trim() || UNSPECIFIED_LOCATION;
+    city?.trim() || district?.trim() || UNSPECIFIED_LOCATION;
 
 export function ServiceHistoryPage() {
     const [services, setServices] = useState<ExtendedServiceRecord[]>([]);
@@ -58,7 +61,7 @@ export function ServiceHistoryPage() {
     const searchTerm = searchParams.get('q') || '';
     const fromDate = searchParams.get('from') || '';
     const toDate = searchParams.get('to') || '';
-    const locationFilter = searchParams.get('location') || 'all';
+    const locationFilter = searchParams.getAll('location');
     const donorFilter = searchParams.get('donor') || 'all';
 
     const setFilterParam = useCallback((key: string, value: string | null) => {
@@ -66,6 +69,15 @@ export function ServiceHistoryPage() {
             const next = new URLSearchParams(prev);
             if (!value || value === 'all') next.delete(key);
             else next.set(key, value);
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
+    const setLocationFilter = useCallback((values: string[]) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.delete('location');
+            values.forEach(v => next.append('location', v));
             return next;
         }, { replace: true });
     }, [setSearchParams]);
@@ -92,12 +104,13 @@ export function ServiceHistoryPage() {
 
             if (isOnline) {
                 try {
-                    const { data: entries, error: entriesError } = await supabase
-                        .from('service_entries')
-                        .select('*')
-                        .order('schedule_date', { ascending: false });
-
-                    if (entriesError) throw entriesError;
+                    // Paginated via fetchAllRows: a single request is capped at
+                    // Supabase's default 1000-row limit, which was silently
+                    // truncating the list (and its location filter options) once
+                    // service_entries passed 1000 rows.
+                    const entries = await fetchAllRows<ServiceEntry>(() =>
+                        supabase.from('service_entries').select('*').order('schedule_date', { ascending: false })
+                    );
 
                     if (entries && entries.length > 0) {
                         const fileNumbers = Array.from(new Set(entries.map((e: ServiceEntry) => e.file_number))).filter(Boolean) as string[];
@@ -118,11 +131,13 @@ export function ServiceHistoryPage() {
                             const realFileNums = fileNumbers.filter(fn => !uuidPattern.test(fn) && !isOfflineToken(fn));
 
                             if (realFileNums.length > 0) {
-                                const { data: byFileNum } = await supabase
-                                    .from('beneficiaries')
-                                    .select('name, file_number, donor, district, city')
-                                    .in('file_number', realFileNums);
-                                byFileNum?.forEach((b: { name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }) => {
+                                const byFileNum = await fetchAllRows<{ name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(() =>
+                                    supabase
+                                        .from('beneficiaries')
+                                        .select('name, file_number, donor, district, city')
+                                        .in('file_number', realFileNums)
+                                );
+                                byFileNum?.forEach((b) => {
                                     if (b.file_number) {
                                         bMap.set(b.file_number, b.name);
                                         donorMap.set(b.file_number, normalizeDonor(b.donor));
@@ -133,11 +148,13 @@ export function ServiceHistoryPage() {
 
                             // Beneficiaries without a file_number are referenced by their Supabase id
                             if (uuidRefs.length > 0) {
-                                const { data: byId } = await supabase
-                                    .from('beneficiaries')
-                                    .select('id, name, file_number, donor, district, city')
-                                    .in('id', uuidRefs);
-                                byId?.forEach((b: { id: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }) => {
+                                const byId = await fetchAllRows<{ id: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(() =>
+                                    supabase
+                                        .from('beneficiaries')
+                                        .select('id, name, file_number, donor, district, city')
+                                        .in('id', uuidRefs)
+                                );
+                                byId?.forEach((b) => {
                                     bMap.set(b.id, b.name);
                                     donorMap.set(b.id, normalizeDonor(b.donor));
                                     locationMap.set(b.id, resolveLocation(b.district, b.city));
@@ -147,11 +164,13 @@ export function ServiceHistoryPage() {
 
                             // Offline-token entries: beneficiary synced but file_number not yet assigned
                             if (offTokenRefs.length > 0) {
-                                const { data: byToken } = await supabase
-                                    .from('beneficiaries')
-                                    .select('offline_token, name, file_number, donor, district, city')
-                                    .in('offline_token', offTokenRefs);
-                                byToken?.forEach((b: { offline_token: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }) => {
+                                const byToken = await fetchAllRows<{ offline_token: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(() =>
+                                    supabase
+                                        .from('beneficiaries')
+                                        .select('offline_token, name, file_number, donor, district, city')
+                                        .in('offline_token', offTokenRefs)
+                                );
+                                byToken?.forEach((b) => {
                                     bMap.set(b.offline_token, b.name);
                                     donorMap.set(b.offline_token, normalizeDonor(b.donor));
                                     locationMap.set(b.offline_token, resolveLocation(b.district, b.city));
@@ -162,11 +181,13 @@ export function ServiceHistoryPage() {
                             // Fallback: legacy entries stored the beneficiary name as file_number
                             const notFound = fileNumbers.filter(fn => !bMap.has(fn));
                             if (notFound.length > 0) {
-                                const { data: byName } = await supabase
-                                    .from('beneficiaries')
-                                    .select('name, donor, district, city')
-                                    .in('name', notFound);
-                                byName?.forEach((b: { name: string; donor: string | null; district: string | null; city: string | null }) => {
+                                const byName = await fetchAllRows<{ name: string; donor: string | null; district: string | null; city: string | null }>(() =>
+                                    supabase
+                                        .from('beneficiaries')
+                                        .select('name, donor, district, city')
+                                        .in('name', notFound)
+                                );
+                                byName?.forEach((b) => {
                                     bMap.set(b.name, b.name);
                                     donorMap.set(b.name, normalizeDonor(b.donor));
                                     locationMap.set(b.name, resolveLocation(b.district, b.city));
@@ -282,7 +303,7 @@ export function ServiceHistoryPage() {
         const matchesFrom = !fromDate || serviceDate >= fromDate;
         const matchesTo = !toDate || serviceDate <= toDate;
 
-        const matchesLocation = locationFilter === 'all' || s.beneficiary?.location === locationFilter;
+        const matchesLocation = locationFilter.length === 0 || (!!s.beneficiary?.location && locationFilter.includes(s.beneficiary.location));
         const matchesDonor = donorFilter === 'all' || s.beneficiary?.donor === donorFilter;
 
         return matchesSearch && matchesFrom && matchesTo && matchesLocation && matchesDonor;
@@ -435,16 +456,13 @@ export function ServiceHistoryPage() {
                             value={toDate}
                             onChange={(e) => setFilterParam('to', e.target.value)}
                         />
-                        <select
-                            className="w-36 lg:w-40 px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                            value={locationFilter}
-                            onChange={(e) => setFilterParam('location', e.target.value)}
-                        >
-                            <option value="all">All Locations</option>
-                            {locationOptions.map(loc => (
-                                <option key={loc} value={loc}>{loc}</option>
-                            ))}
-                        </select>
+                        <MultiSelectDropdown
+                            className="w-36 lg:w-40"
+                            options={locationOptions}
+                            selected={locationFilter}
+                            onChange={setLocationFilter}
+                            placeholder="All Locations"
+                        />
                         <select
                             className="w-36 lg:w-40 px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                             value={donorFilter}
@@ -455,7 +473,7 @@ export function ServiceHistoryPage() {
                                 <option key={d} value={d}>{d}</option>
                             ))}
                         </select>
-                        {(searchTerm || fromDate || toDate || locationFilter !== 'all' || donorFilter !== 'all') && (
+                        {(searchTerm || fromDate || toDate || locationFilter.length > 0 || donorFilter !== 'all') && (
                             <button
                                 onClick={clearFilters}
                                 className="text-xs font-bold text-primary hover:underline px-2"
