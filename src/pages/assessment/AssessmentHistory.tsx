@@ -25,6 +25,18 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { assessmentService } from '@/services/assessmentService';
 import { auditService } from '@/services/auditService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
+import { normalizeDonor, UNSPECIFIED_DONOR, fetchAllRows } from '@/services/dashboardService';
+import { MultiSelectDropdown } from '@/components/common/MultiSelectDropdown';
+
+const UNSPECIFIED_LOCATION = 'Unspecified';
+const getAssessmentLocation = (r: { village: string }): string => r.village?.trim() || UNSPECIFIED_LOCATION;
+
+// initial_assessment has no donor column of its own — soft-link to the
+// beneficiaries table via normalized name/phone, same approach
+// AssessmentVsReassessmentChart.tsx uses (beneficiary_id isn't reliably
+// backfilled for older or offline-created records).
+const normalizeName = (n: string | null | undefined): string => (n || '').trim().toLowerCase();
+const normalizePhone = (p: string | null | undefined): string => (p || '').trim();
 
 interface AssessmentRecord {
     patient_id: string;
@@ -46,6 +58,8 @@ interface AssessmentRecord {
     clinical_count: number;
     follow_up_count: number;
     latest_follow_up_date: string | null;
+    // Soft-linked from beneficiaries (see normalizeName/normalizePhone above)
+    donor: string;
     // Offline tracking
     isOffline?: boolean;
     sync_status?: 'pending' | 'synced' | 'failed';
@@ -63,6 +77,8 @@ export function AssessmentHistoryPage() {
     const toDate = searchParams.get('to') || '';
     const followUpOnly = searchParams.get('followUp') === '1';
     const clinicalFilter = (searchParams.get('clinical') as 'all' | 'done' | 'pending') || 'all';
+    const locationFilter = searchParams.getAll('location');
+    const donorFilter = searchParams.get('donor') || 'all';
 
     const setFilterParam = useCallback((key: string, value: string | null) => {
         setSearchParams(prev => {
@@ -73,10 +89,19 @@ export function AssessmentHistoryPage() {
         }, { replace: true });
     }, [setSearchParams]);
 
+    const setLocationFilter = useCallback((values: string[]) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.delete('location');
+            values.forEach(v => next.append('location', v));
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
     const clearFilters = useCallback(() => {
         setSearchParams(prev => {
             const next = new URLSearchParams(prev);
-            ['q', 'from', 'to', 'followUp', 'clinical'].forEach(key => next.delete(key));
+            ['q', 'from', 'to', 'followUp', 'clinical', 'location', 'donor'].forEach(key => next.delete(key));
             return next;
         }, { replace: true });
     }, [setSearchParams]);
@@ -89,34 +114,67 @@ export function AssessmentHistoryPage() {
     const fetchHistory = useCallback(async () => {
         setIsLoading(true);
         try {
+            // Build the name/phone -> donor lookup used to soft-link assessments to
+            // a beneficiary's donor. Dexie is read regardless of online status (it
+            // holds a local cache of every beneficiary, not just pending ones) and
+            // merged with the live Supabase table when online, so donor resolution
+            // works the same whether or not the assessment itself is offline.
+            const [supabaseBeneficiaries, dexieBeneficiaries] = await Promise.all([
+                isOnline
+                    ? fetchAllRows<{ name: string | null; mobile_no: string | null; donor: string | null }>(() =>
+                        supabase.from('beneficiaries').select('name, mobile_no, donor')
+                    ).catch(() => [])
+                    : Promise.resolve([]),
+                db.beneficiaries.toArray(),
+            ]);
+
+            const donorByName = new Map<string, string>();
+            const donorByPhone = new Map<string, string>();
+            [...dexieBeneficiaries, ...supabaseBeneficiaries].forEach((b) => {
+                const d = normalizeDonor(b.donor);
+                const n = normalizeName(b.name);
+                const p = normalizePhone(b.mobile_no);
+                if (n) donorByName.set(n, d);
+                if (p) donorByPhone.set(p, d);
+            });
+            const resolveDonor = (name?: string | null, phone?: string | null): string => {
+                const n = normalizeName(name);
+                const p = normalizePhone(phone);
+                if (n && donorByName.has(n)) return donorByName.get(n)!;
+                if (p && donorByPhone.has(p)) return donorByPhone.get(p)!;
+                return UNSPECIFIED_DONOR;
+            };
+
             let mapped: AssessmentRecord[] = [];
 
             if (isOnline) {
-                const { data: initials, error: initError } = await supabase
-                    .from('initial_assessment')
-                    .select('*')
-                    .order('assessment_date', { ascending: false });
+                // Paginated via fetchAllRows: a single request is capped at
+                // Supabase's default 1000-row limit, which would silently
+                // truncate the list (and its location/donor filter options)
+                // once these tables passed 1000 rows.
+                const initials = await fetchAllRows<AssessmentRecord>(() =>
+                    supabase.from('initial_assessment').select('*').order('assessment_date', { ascending: false })
+                );
 
-                if (initError) throw initError;
+                if (initials.length > 0) {
+                    const patientIds = initials.map((i) => i.patient_id);
 
-                if (initials && initials.length > 0) {
-                    const patientIds = initials.map((i: AssessmentRecord) => i.patient_id);
+                    const clinicals = await fetchAllRows<{ patient_id: string }>(() =>
+                        supabase.from('clinical_assessment').select('patient_id').in('patient_id', patientIds)
+                    );
 
-                    const { data: clinicals } = await supabase
-                        .from('clinical_assessment')
-                        .select('patient_id')
-                        .in('patient_id', patientIds);
+                    const clinicalSet = new Set(clinicals.map((c) => c.patient_id));
 
-                    const clinicalSet = new Set((clinicals || []).map((c: { patient_id: string }) => c.patient_id));
-
-                    const { data: followUps } = await supabase
-                        .from('follow_up_assessment')
-                        .select('patient_id, visit_date, session_number')
-                        .in('patient_id', patientIds)
-                        .order('session_number', { ascending: false });
+                    const followUps = await fetchAllRows<{ patient_id: string; visit_date: string; session_number: number }>(() =>
+                        supabase
+                            .from('follow_up_assessment')
+                            .select('patient_id, visit_date, session_number')
+                            .in('patient_id', patientIds)
+                            .order('session_number', { ascending: false })
+                    );
 
                     const followUpMap = new Map<string, { count: number; latestDate: string | null }>();
-                    (followUps || []).forEach((f: { patient_id: string; visit_date: string; session_number: number }) => {
+                    followUps.forEach((f) => {
                         const existing = followUpMap.get(f.patient_id);
                         if (!existing) {
                             followUpMap.set(f.patient_id, { count: 1, latestDate: f.visit_date });
@@ -125,8 +183,9 @@ export function AssessmentHistoryPage() {
                         }
                     });
 
-                    mapped = initials.map((i: AssessmentRecord) => ({
+                    mapped = initials.map((i) => ({
                         ...i,
+                        donor: resolveDonor(i.patient_name, i.phone),
                         clinical_count: clinicalSet.has(i.patient_id) ? 1 : 0,
                         follow_up_count: followUpMap.get(i.patient_id)?.count || 0,
                         latest_follow_up_date: followUpMap.get(i.patient_id)?.latestDate || null,
@@ -165,6 +224,7 @@ export function AssessmentHistoryPage() {
                         joint_involved: r.joint_involved,
                         document_type: r.document_type,
                         created_at: r.created_at ?? new Date().toISOString(),
+                        donor: resolveDonor(r.patient_name, r.phone),
                         clinical_count: clinicalCount,
                         follow_up_count: followUps.length,
                         latest_follow_up_date: latestFU?.visit_date ?? null,
@@ -204,9 +264,14 @@ export function AssessmentHistoryPage() {
         const matchesFollowUp = !followUpOnly || r.follow_up_count > 0;
         const matchesClinical = clinicalFilter === 'all'
             || (clinicalFilter === 'done' ? r.clinical_count > 0 : r.clinical_count === 0);
+        const matchesLocation = locationFilter.length === 0 || locationFilter.includes(getAssessmentLocation(r));
+        const matchesDonor = donorFilter === 'all' || r.donor === donorFilter;
 
-        return matchesSearch && matchesFrom && matchesTo && matchesFollowUp && matchesClinical;
+        return matchesSearch && matchesFrom && matchesTo && matchesFollowUp && matchesClinical && matchesLocation && matchesDonor;
     });
+
+    const locationOptions = Array.from(new Set(records.map(getAssessmentLocation))).sort((a, b) => a.localeCompare(b));
+    const donorOptions = Array.from(new Set(records.map(r => r.donor))).sort((a, b) => a.localeCompare(b));
 
     // Stats
     const totalPatients = filtered.length;
@@ -337,7 +402,24 @@ export function AssessmentHistoryPage() {
                             value={toDate}
                             onChange={(e) => setFilterParam('to', e.target.value)}
                         />
-                        {(searchTerm || fromDate || toDate || followUpOnly || clinicalFilter !== 'all') && (
+                        <MultiSelectDropdown
+                            className="w-36 sm:w-40"
+                            options={locationOptions}
+                            selected={locationFilter}
+                            onChange={setLocationFilter}
+                            placeholder="All Locations"
+                        />
+                        <select
+                            className="w-36 sm:w-40 px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            value={donorFilter}
+                            onChange={(e) => setFilterParam('donor', e.target.value)}
+                        >
+                            <option value="all">All Donors</option>
+                            {donorOptions.map(d => (
+                                <option key={d} value={d}>{d}</option>
+                            ))}
+                        </select>
+                        {(searchTerm || fromDate || toDate || followUpOnly || clinicalFilter !== 'all' || locationFilter.length > 0 || donorFilter !== 'all') && (
                             <button
                                 onClick={clearFilters}
                                 className="text-xs font-bold text-primary hover:underline px-2"
