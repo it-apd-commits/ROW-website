@@ -62,6 +62,7 @@ export function AssessmentHistoryPage() {
     const fromDate = searchParams.get('from') || '';
     const toDate = searchParams.get('to') || '';
     const followUpOnly = searchParams.get('followUp') === '1';
+    const clinicalFilter = (searchParams.get('clinical') as 'all' | 'done' | 'pending') || 'all';
 
     const setFilterParam = useCallback((key: string, value: string | null) => {
         setSearchParams(prev => {
@@ -75,7 +76,7 @@ export function AssessmentHistoryPage() {
     const clearFilters = useCallback(() => {
         setSearchParams(prev => {
             const next = new URLSearchParams(prev);
-            ['q', 'from', 'to', 'followUp'].forEach(key => next.delete(key));
+            ['q', 'from', 'to', 'followUp', 'clinical'].forEach(key => next.delete(key));
             return next;
         }, { replace: true });
     }, [setSearchParams]);
@@ -201,8 +202,10 @@ export function AssessmentHistoryPage() {
         const matchesFrom = !fromDate || r.assessment_date >= fromDate;
         const matchesTo = !toDate || r.assessment_date <= toDate;
         const matchesFollowUp = !followUpOnly || r.follow_up_count > 0;
+        const matchesClinical = clinicalFilter === 'all'
+            || (clinicalFilter === 'done' ? r.clinical_count > 0 : r.clinical_count === 0);
 
-        return matchesSearch && matchesFrom && matchesTo && matchesFollowUp;
+        return matchesSearch && matchesFrom && matchesTo && matchesFollowUp && matchesClinical;
     });
 
     // Stats
@@ -306,7 +309,7 @@ export function AssessmentHistoryPage() {
 
             <Card className="p-4 md:p-6 min-w-0">
                 {/* Filters */}
-                <div className="flex flex-col md:flex-row md:items-start gap-4 mb-8">
+                <div className="flex flex-col md:flex-row md:items-start gap-4 mb-4">
                     <div className="flex-1 relative w-full">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                         <Input
@@ -334,7 +337,7 @@ export function AssessmentHistoryPage() {
                             value={toDate}
                             onChange={(e) => setFilterParam('to', e.target.value)}
                         />
-                        {(searchTerm || fromDate || toDate || followUpOnly) && (
+                        {(searchTerm || fromDate || toDate || followUpOnly || clinicalFilter !== 'all') && (
                             <button
                                 onClick={clearFilters}
                                 className="text-xs font-bold text-primary hover:underline px-2"
@@ -343,6 +346,28 @@ export function AssessmentHistoryPage() {
                             </button>
                         )}
                     </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 mb-8">
+                    <span className="text-xs font-bold text-gray-400 uppercase mr-1">Clinical Assessment:</span>
+                    <button
+                        onClick={() => setFilterParam('clinical', null)}
+                        className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${clinicalFilter === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                    >
+                        All
+                    </button>
+                    <button
+                        onClick={() => setFilterParam('clinical', 'done')}
+                        className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${clinicalFilter === 'done' ? 'bg-green-600 text-white border-green-600' : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'}`}
+                    >
+                        Assessment Done
+                    </button>
+                    <button
+                        onClick={() => setFilterParam('clinical', 'pending')}
+                        className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${clinicalFilter === 'pending' ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}
+                    >
+                        Assessment Not Done
+                    </button>
                 </div>
 
                 {/* Stats Cards */}
