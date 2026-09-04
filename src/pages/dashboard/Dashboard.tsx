@@ -22,7 +22,7 @@ import { GenderBreakdownChart } from '@/components/dashboard/GenderBreakdownChar
 import type { DonorBreakdownRow } from '@/components/dashboard/DonorBreakdownTable';
 import type { ReferralReasonRow } from '@/components/dashboard/ReferralReasonBreakdownTable';
 import type { TimeFrame, ChartFilter } from '@/types/dashboard';
-import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
+import { normalizeDonor, UNSPECIFIED_DONOR, fetchAllRows } from '@/services/dashboardService';
 
 
 interface MappedCamp {
@@ -35,6 +35,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
+// initial_assessment has no donor column of its own — soft-link to the
+// beneficiaries table via normalized name/phone, same approach
+// AssessmentHistory.tsx uses (beneficiary_id isn't reliably backfilled for
+// older or offline-created records).
+const normalizeName = (n: string | null | undefined): string => (n || '').trim().toLowerCase();
+const normalizePhone = (p: string | null | undefined): string => (p || '').trim();
+
 export function DashboardPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [dynamicStats, setDynamicStats] = useState({
@@ -42,7 +49,6 @@ export function DashboardPage() {
         activeBuses: 0,
         campsConducted: 0,
         servicesProvided: 0,
-        referralsNeeded: 0
     });
 
     const [upcomingCamps, setUpcomingCamps] = useState<MappedCamp[]>([]);
@@ -51,8 +57,10 @@ export function DashboardPage() {
     const [donorBreakdown, setDonorBreakdown] = useState<DonorBreakdownRow[]>([]);
     const [donorFilter, setDonorFilter] = useState<string>('all');
 
-    // Referral reason breakdown (Service Referral / Assessment Needed)
-    const [referralBreakdown, setReferralBreakdown] = useState<ReferralReasonRow[]>([]);
+    // Raw referral rows (Service Referral / Assessment Needed), each soft-linked
+    // to a donor — kept ungrouped so the reason breakdown and the "needed" count
+    // can both be re-derived per the selected donor without a refetch.
+    const [referralRecords, setReferralRecords] = useState<{ donor: string; reason: string }[]>([]);
 
     // Global Filter State
     const [timeframe, setTimeframe] = useState<TimeFrame>('all');
@@ -116,8 +124,8 @@ export function DashboardPage() {
                 // capped at Supabase's default 1000-row limit regardless of the
                 // bounds passed, which was silently truncating this once the
                 // beneficiaries table passed 1000 rows.
-                const bRowsPromise = fetchAllRows<{ id: string; file_number: string | null; donor: string | null; date_of_registration: string | null }>(() =>
-                    supabase.from('beneficiaries').select('id, file_number, donor, date_of_registration')
+                const bRowsPromise = fetchAllRows<{ id: string; file_number: string | null; donor: string | null; date_of_registration: string | null; name: string | null; mobile_no: string | null }>(() =>
+                    supabase.from('beneficiaries').select('id, file_number, donor, date_of_registration, name, mobile_no')
                 );
 
                 // Services for donor attribution — date-filtered on schedule_date.
@@ -130,9 +138,11 @@ export function DashboardPage() {
 
                 // Initial assessments — for the Service Referral / Assessment Needed
                 // count and its Reason for Referral breakdown, date-filtered on
-                // assessment_date.
-                const iaRowsPromise = fetchAllRows<{ service_referral_needed: string | null; referral_reason: string | null }>(() => {
-                    let q = supabase.from('initial_assessment').select('service_referral_needed, referral_reason');
+                // assessment_date. initial_assessment has no donor column of its own,
+                // so patient_name/phone are pulled too and soft-linked to a
+                // beneficiary's donor below (same approach as Assessment History).
+                const iaRowsPromise = fetchAllRows<{ service_referral_needed: string | null; referral_reason: string | null; patient_name: string | null; phone: string | null }>(() => {
+                    let q = supabase.from('initial_assessment').select('service_referral_needed, referral_reason, patient_name, phone');
                     if (globalFilter.startDate) q = q.gte('assessment_date', globalFilter.startDate);
                     if (globalFilter.endDate) q = q.lte('assessment_date', globalFilter.endDate);
                     return q;
@@ -211,17 +221,31 @@ export function DashboardPage() {
 
                 // ---- Referral reason breakdown computation ----
 
-                const referralRows = iaList.filter(r => !!r.service_referral_needed);
-                const reasonCounts: Record<string, number> = {};
-                referralRows.forEach(r => {
-                    const reason = r.referral_reason || 'Unspecified';
-                    reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+                const donorByName = new Map<string, string>();
+                const donorByPhone = new Map<string, string>();
+                benList.forEach(b => {
+                    const d = normalizeDonor(b.donor);
+                    const n = normalizeName(b.name);
+                    const p = normalizePhone(b.mobile_no);
+                    if (n) donorByName.set(n, d);
+                    if (p) donorByPhone.set(p, d);
                 });
-                const referralReasonRows: ReferralReasonRow[] = Object.entries(reasonCounts)
-                    .map(([reason, count]) => ({ reason, count }))
-                    .sort((a, b) => b.count - a.count);
+                const resolvePatientDonor = (name?: string | null, phone?: string | null): string => {
+                    const n = normalizeName(name);
+                    const p = normalizePhone(phone);
+                    if (n && donorByName.has(n)) return donorByName.get(n)!;
+                    if (p && donorByPhone.has(p)) return donorByPhone.get(p)!;
+                    return UNSPECIFIED_DONOR;
+                };
 
-                setReferralBreakdown(referralReasonRows);
+                const records = iaList
+                    .filter(r => !!r.service_referral_needed)
+                    .map(r => ({
+                        donor: resolvePatientDonor(r.patient_name, r.phone),
+                        reason: r.referral_reason || 'Unspecified',
+                    }));
+
+                setReferralRecords(records);
 
                 const uniqueBuses = trips ? new Set(trips.map(t => t.bus_number)).size : 0;
                 const campsConducted = trips ? trips.length : 0;
@@ -231,7 +255,6 @@ export function DashboardPage() {
                     activeBuses: uniqueBuses,
                     campsConducted,
                     servicesProvided: servicesCount || 0,
-                    referralsNeeded: referralRows.length,
                 });
 
                 if (schedules) {
@@ -288,6 +311,20 @@ export function DashboardPage() {
     const displayedBeneficiaries = isDonorScoped ? (selectedDonorRow?.beneficiaries ?? 0) : dynamicStats.totalBeneficiaries;
     const displayedServices = isDonorScoped ? (selectedDonorRow?.services ?? 0) : dynamicStats.servicesProvided;
 
+    // Referral rows scoped to the selected donor, re-derived from the raw
+    // records on every donor-filter change (no refetch needed).
+    const scopedReferralRecords = isDonorScoped
+        ? referralRecords.filter(r => r.donor === donorFilter)
+        : referralRecords;
+    const referralReasonCounts: Record<string, number> = {};
+    scopedReferralRecords.forEach(r => {
+        referralReasonCounts[r.reason] = (referralReasonCounts[r.reason] || 0) + 1;
+    });
+    const referralBreakdown: ReferralReasonRow[] = Object.entries(referralReasonCounts)
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count);
+    const displayedReferralsNeeded = scopedReferralRecords.length;
+
     const stats = [
         {
             label: isDonorScoped ? `Beneficiaries · ${donorFilter}` : 'Total Beneficiaries',
@@ -326,8 +363,8 @@ export function DashboardPage() {
             link: '/services/history'
         },
         {
-            label: 'Referrals / Assessments Needed',
-            value: dynamicStats.referralsNeeded.toLocaleString(),
+            label: isDonorScoped ? `Referrals Needed · ${donorFilter}` : 'Referrals / Assessments Needed',
+            value: displayedReferralsNeeded.toLocaleString(),
             icon: ClipboardList,
             change: 'Pending',
             color: 'text-teal-600',
