@@ -26,6 +26,17 @@ interface BeneficiaryItem extends Partial<OfflineBeneficiary>, Record<string, un
 const UNSPECIFIED_LOCATION = 'Unspecified';
 const SCROLL_POSITION_KEY = 'beneficiaryList:scrollTop';
 
+// Supabase errors (PostgrestError) are plain objects with a `message` field,
+// not real Error instances — `error instanceof Error` misses them and hides
+// the actual reason (e.g. a foreign key constraint) behind a generic message.
+function getErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as { message: unknown }).message === 'string') {
+        return (error as { message: string }).message;
+    }
+    return fallback;
+}
+
 // City/village is the value shown and filtered on; district is only a fallback
 // for older records that never captured a city.
 function getBeneficiaryLocation(b: BeneficiaryItem): string {
@@ -201,8 +212,7 @@ export function BeneficiaryListPage() {
             setBeneficiaries(prev => prev.filter(b => b.id !== id));
             setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to delete beneficiary';
-            alert(message);
+            alert(getErrorMessage(error, 'Failed to delete beneficiary'));
         } finally {
             setIsDeleting(false);
         }
@@ -213,24 +223,25 @@ export function BeneficiaryListPage() {
 
         setIsDeleting(true);
         try {
-            // Delete from local DB
-            await db.beneficiaries.bulkDelete(selectedIds);
-
             if (isOnline) {
                 const { error } = await supabase
                     .from('beneficiaries')
                     .delete()
                     .in('id', selectedIds);
 
-                if (error) console.error('Server bulk delete failed:', error);
+                if (error) throw error;
             }
+
+            // Only clear the local copy once the server delete (if any) succeeded —
+            // otherwise the list would look empty locally while the rows are
+            // still on the server, and they'd reappear on the next fetch.
+            await db.beneficiaries.bulkDelete(selectedIds);
 
             await auditService.log('BENEFICIARY_BULK_DELETED', { count: selectedIds.length });
             setBeneficiaries(prev => prev.filter(b => !b.id || !selectedIds.includes(b.id)));
             setSelectedIds([]);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to delete beneficiaries';
-            alert(message);
+            alert(getErrorMessage(error, 'Failed to delete beneficiaries'));
         } finally {
             setIsDeleting(false);
         }
