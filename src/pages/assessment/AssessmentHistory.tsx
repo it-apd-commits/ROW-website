@@ -237,8 +237,8 @@ export function AssessmentHistoryPage() {
                         clinical_count: clinicalRecords.length,
                         follow_up_count: followUps.length,
                         latest_follow_up_date: latestFU?.visit_date ?? null,
-                        missing_clinical_fields: getMissingClinicalFields(r.primary_condition, clinicalRecords[0]),
-                        missing_follow_up_fields: getMissingFollowUpFields(r.primary_condition, latestFU),
+                        missing_clinical_fields: getMissingClinicalFields(r.primary_condition, clinicalRecords[0] as unknown as Record<string, unknown> | undefined),
+                        missing_follow_up_fields: getMissingFollowUpFields(r.primary_condition, latestFU as unknown as Record<string, unknown> | undefined),
                         isOffline: true,
                         sync_status: r.sync_status,
                     };
