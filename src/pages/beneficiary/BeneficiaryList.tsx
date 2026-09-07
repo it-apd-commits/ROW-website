@@ -188,7 +188,7 @@ export function BeneficiaryListPage() {
         }
     }, [isLoading]);
 
-    const handleDelete = async (id: string, name: string) => {
+    const handleDelete = async (id: string, name: string, fileNumber?: string | null) => {
         if (!window.confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) return;
 
         setIsDeleting(true);
@@ -200,6 +200,17 @@ export function BeneficiaryListPage() {
             }
 
             if (isOnline) {
+                // service_entries links to a beneficiary by file_number, not a DB foreign
+                // key, so it isn't covered by the beneficiaries row's cascade delete —
+                // remove those rows explicitly.
+                if (fileNumber) {
+                    const { error: seErr } = await supabase
+                        .from('service_entries')
+                        .delete()
+                        .eq('file_number', fileNumber);
+                    if (seErr) throw seErr;
+                }
+
                 const { error } = await supabase
                     .from('beneficiaries')
                     .delete()
@@ -224,6 +235,20 @@ export function BeneficiaryListPage() {
         setIsDeleting(true);
         try {
             if (isOnline) {
+                // service_entries links to a beneficiary by file_number, not a DB foreign
+                // key, so it isn't covered by the beneficiaries row's cascade delete —
+                // remove those rows explicitly.
+                const fileNumbers = beneficiaries
+                    .filter(b => b.id && selectedIds.includes(b.id) && b.file_number)
+                    .map(b => b.file_number as string);
+                if (fileNumbers.length > 0) {
+                    const { error: seErr } = await supabase
+                        .from('service_entries')
+                        .delete()
+                        .in('file_number', fileNumbers);
+                    if (seErr) throw seErr;
+                }
+
                 const { error } = await supabase
                     .from('beneficiaries')
                     .delete()
@@ -635,7 +660,7 @@ export function BeneficiaryListPage() {
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                handleDelete(stableId, b.name || 'Unknown');
+                                                                handleDelete(stableId, b.name || 'Unknown', b.file_number);
                                                             }}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                                                             disabled={isDeleting}

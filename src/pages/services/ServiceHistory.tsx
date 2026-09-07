@@ -30,7 +30,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { auditService } from '@/services/auditService';
-import { normalizeDonor, fetchAllRows } from '@/services/dashboardService';
+import { normalizeDonor, fetchAllRows, fetchRowsForKeys } from '@/services/dashboardService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { ServiceEntry } from '@/types/serviceEntry';
 
@@ -123,76 +123,87 @@ export function ServiceHistoryPage() {
                         const donorMap = new Map<string, string>();
                         const locationMap = new Map<string, string>();
 
-                        if (fileNumbers.length > 0) {
-                            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                            const isOfflineToken = (fn: string) => fn.startsWith('OFF-') || fn.startsWith('import-');
-                            const uuidRefs = fileNumbers.filter(fn => uuidPattern.test(fn));
-                            const offTokenRefs = fileNumbers.filter(fn => isOfflineToken(fn));
-                            const realFileNums = fileNumbers.filter(fn => !uuidPattern.test(fn) && !isOfflineToken(fn));
+                        // Enrichment (names/donor/location) is best-effort — if it fails for
+                        // any reason, fall through to showing the raw entries below rather
+                        // than losing the whole list like the earlier oversized-`.in()` bug did.
+                        try {
+                            if (fileNumbers.length > 0) {
+                                const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                                const isOfflineToken = (fn: string) => fn.startsWith('OFF-') || fn.startsWith('import-');
+                                const uuidRefs = fileNumbers.filter(fn => uuidPattern.test(fn));
+                                const offTokenRefs = fileNumbers.filter(fn => isOfflineToken(fn));
+                                const realFileNums = fileNumbers.filter(fn => !uuidPattern.test(fn) && !isOfflineToken(fn));
 
-                            if (realFileNums.length > 0) {
-                                const byFileNum = await fetchAllRows<{ name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(() =>
-                                    supabase
-                                        .from('beneficiaries')
-                                        .select('name, file_number, donor, district, city')
-                                        .in('file_number', realFileNums)
-                                );
-                                byFileNum?.forEach((b) => {
-                                    if (b.file_number) {
-                                        bMap.set(b.file_number, b.name);
-                                        donorMap.set(b.file_number, normalizeDonor(b.donor));
-                                        locationMap.set(b.file_number, resolveLocation(b.district, b.city));
-                                    }
-                                });
-                            }
+                                if (realFileNums.length > 0) {
+                                    const byFileNum = await fetchRowsForKeys<{ name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(
+                                        realFileNums,
+                                        (batch) => supabase
+                                            .from('beneficiaries')
+                                            .select('name, file_number, donor, district, city')
+                                            .in('file_number', batch)
+                                    );
+                                    byFileNum?.forEach((b) => {
+                                        if (b.file_number) {
+                                            bMap.set(b.file_number, b.name);
+                                            donorMap.set(b.file_number, normalizeDonor(b.donor));
+                                            locationMap.set(b.file_number, resolveLocation(b.district, b.city));
+                                        }
+                                    });
+                                }
 
-                            // Beneficiaries without a file_number are referenced by their Supabase id
-                            if (uuidRefs.length > 0) {
-                                const byId = await fetchAllRows<{ id: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(() =>
-                                    supabase
-                                        .from('beneficiaries')
-                                        .select('id, name, file_number, donor, district, city')
-                                        .in('id', uuidRefs)
-                                );
-                                byId?.forEach((b) => {
-                                    bMap.set(b.id, b.name);
-                                    donorMap.set(b.id, normalizeDonor(b.donor));
-                                    locationMap.set(b.id, resolveLocation(b.district, b.city));
-                                    if (b.file_number) fnMap.set(b.id, b.file_number);
-                                });
-                            }
+                                // Beneficiaries without a file_number are referenced by their Supabase id
+                                if (uuidRefs.length > 0) {
+                                    const byId = await fetchRowsForKeys<{ id: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(
+                                        uuidRefs,
+                                        (batch) => supabase
+                                            .from('beneficiaries')
+                                            .select('id, name, file_number, donor, district, city')
+                                            .in('id', batch)
+                                    );
+                                    byId?.forEach((b) => {
+                                        bMap.set(b.id, b.name);
+                                        donorMap.set(b.id, normalizeDonor(b.donor));
+                                        locationMap.set(b.id, resolveLocation(b.district, b.city));
+                                        if (b.file_number) fnMap.set(b.id, b.file_number);
+                                    });
+                                }
 
-                            // Offline-token entries: beneficiary synced but file_number not yet assigned
-                            if (offTokenRefs.length > 0) {
-                                const byToken = await fetchAllRows<{ offline_token: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(() =>
-                                    supabase
-                                        .from('beneficiaries')
-                                        .select('offline_token, name, file_number, donor, district, city')
-                                        .in('offline_token', offTokenRefs)
-                                );
-                                byToken?.forEach((b) => {
-                                    bMap.set(b.offline_token, b.name);
-                                    donorMap.set(b.offline_token, normalizeDonor(b.donor));
-                                    locationMap.set(b.offline_token, resolveLocation(b.district, b.city));
-                                    if (b.file_number) fnMap.set(b.offline_token, b.file_number);
-                                });
-                            }
+                                // Offline-token entries: beneficiary synced but file_number not yet assigned
+                                if (offTokenRefs.length > 0) {
+                                    const byToken = await fetchRowsForKeys<{ offline_token: string; name: string; file_number: string | null; donor: string | null; district: string | null; city: string | null }>(
+                                        offTokenRefs,
+                                        (batch) => supabase
+                                            .from('beneficiaries')
+                                            .select('offline_token, name, file_number, donor, district, city')
+                                            .in('offline_token', batch)
+                                    );
+                                    byToken?.forEach((b) => {
+                                        bMap.set(b.offline_token, b.name);
+                                        donorMap.set(b.offline_token, normalizeDonor(b.donor));
+                                        locationMap.set(b.offline_token, resolveLocation(b.district, b.city));
+                                        if (b.file_number) fnMap.set(b.offline_token, b.file_number);
+                                    });
+                                }
 
-                            // Fallback: legacy entries stored the beneficiary name as file_number
-                            const notFound = fileNumbers.filter(fn => !bMap.has(fn));
-                            if (notFound.length > 0) {
-                                const byName = await fetchAllRows<{ name: string; donor: string | null; district: string | null; city: string | null }>(() =>
-                                    supabase
-                                        .from('beneficiaries')
-                                        .select('name, donor, district, city')
-                                        .in('name', notFound)
-                                );
-                                byName?.forEach((b) => {
-                                    bMap.set(b.name, b.name);
-                                    donorMap.set(b.name, normalizeDonor(b.donor));
-                                    locationMap.set(b.name, resolveLocation(b.district, b.city));
-                                });
+                                // Fallback: legacy entries stored the beneficiary name as file_number
+                                const notFound = fileNumbers.filter(fn => !bMap.has(fn));
+                                if (notFound.length > 0) {
+                                    const byName = await fetchRowsForKeys<{ name: string; donor: string | null; district: string | null; city: string | null }>(
+                                        notFound,
+                                        (batch) => supabase
+                                            .from('beneficiaries')
+                                            .select('name, donor, district, city')
+                                            .in('name', batch)
+                                    );
+                                    byName?.forEach((b) => {
+                                        bMap.set(b.name, b.name);
+                                        donorMap.set(b.name, normalizeDonor(b.donor));
+                                        locationMap.set(b.name, resolveLocation(b.district, b.city));
+                                    });
+                                }
                             }
+                        } catch (enrichErr) {
+                            console.error('[ServiceHistory] Beneficiary enrichment failed, showing entries without names:', enrichErr);
                         }
 
                         serverEntries = entries.map((item: ServiceEntry) => {

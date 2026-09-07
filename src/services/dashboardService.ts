@@ -25,6 +25,25 @@ export const fetchAllRows = async <T>(
     return rows;
 };
 
+// --- Helper for chunked `.in()` lookups ---
+// A single `.in()` filter carrying hundreds of keys (e.g. UUIDs) can produce
+// a URL long enough that the request is rejected outright (400) before it
+// reaches Postgres — batch the key list so no single request gets too large.
+export const fetchRowsForKeys = async <T>(
+    keys: string[],
+    buildQuery: (batch: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+    batchSize = 50
+): Promise<T[]> => {
+    const rows: T[] = [];
+    for (let i = 0; i < keys.length; i += batchSize) {
+        const batch = keys.slice(i, i + batchSize);
+        const { data, error } = await buildQuery(batch);
+        if (error) throw error;
+        rows.push(...(data ?? []));
+    }
+    return rows;
+};
+
 // Maps a beneficiary's file_number AND id to its normalized donor, so a
 // service_entries.file_number holding either value still resolves.
 const fetchDonorByKey = async (): Promise<Map<string, string>> => {

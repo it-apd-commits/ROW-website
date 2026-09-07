@@ -27,6 +27,8 @@ export function AssessmentEntryPage() {
         name?: string; age?: string; gender?: string; mobileNo?: string; city?: string; address?: string;
         dateOfRegistration?: string; beneficiaryId?: string; beneficiaryOfflineToken?: string;
     } } | null)?.prefillBeneficiary;
+    // Which step to land on when editing an existing patient (e.g. "Edit Assessment" vs "Edit Follow Up").
+    const startStep = (location.state as { startStep?: Step } | null)?.startStep;
     const isOnline = useOnlineStatus();
     const [activeStep, setActiveStep] = useState<Step>(1);
     const [initialData, setInitialData] = useState<InitialAssessment | null>(null);
@@ -81,9 +83,9 @@ export function AssessmentEntryPage() {
                 const clinical = await assessmentService.getClinical(patientId);
                 if (clinical) {
                     setClinicalData(clinical);
-                    setActiveStep(3);
+                    setActiveStep(startStep ?? 3);
                 } else {
-                    setActiveStep(2);
+                    setActiveStep(startStep ?? 2);
                 }
             }
         } finally {
