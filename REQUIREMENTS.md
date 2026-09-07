@@ -685,6 +685,7 @@ Admin-only section for user management, role assignment, audit logging, and bulk
 
 ### Implemented
 - [x] Users tab — list all profiles with name, email, role, last login
+- [x] Add User — Admin invites a new user by name/email/role via email invite link (`admin-invite-user` Edge Function)
 - [x] Role assignment per user (Admin only; self-protection prevents role downgrade of own account)
 - [x] Audit log tab — table of user actions with details and timestamps
 - [x] Monthly schedule upload — Excel import to `monthly_schedules` table
@@ -692,15 +693,16 @@ Admin-only section for user management, role assignment, audit logging, and bulk
 
 ### Known Issues
 - [ ] Audit log coverage is sparse — not all create/edit/delete actions write to the log
-- [ ] No user invite flow — new users must self-register then have an admin assign their role
 - [ ] No bulk user import
 
 ### Pending / New Requirements
 ```
-REQ-ADMIN-001 · Priority: High · Status: Open
-Add an "Invite User" flow — admin enters email + role → system sends a
-Supabase invite email → user sets password on first login. Removes the
-need for self-registration followed by manual role assignment.
+REQ-ADMIN-001 · Priority: High · Status: Done
+"Add User" flow — Admin Control Center > User Management > Add User modal
+(admin enters name + email + role) invokes the `admin-invite-user` Supabase
+Edge Function, which sends a Supabase invite email; user sets their password
+on first login via /auth/callback. Removes the need for self-registration
+followed by manual role assignment.
 
 REQ-ADMIN-002 · Priority: Medium · Status: Open
 Expand audit logging to cover all create, edit, and delete operations across

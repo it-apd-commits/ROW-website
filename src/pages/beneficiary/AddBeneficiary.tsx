@@ -403,6 +403,7 @@ export function AddBeneficiaryPage() {
                                 name="donor"
                                 value={formData.donor}
                                 onChange={handleChange}
+                                required
                                 options={[
                                     { value: '', label: '-- Select Donor --' },
                                     { value: 'ABB', label: 'ABB' },

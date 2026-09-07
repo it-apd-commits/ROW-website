@@ -16,7 +16,11 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 export const Select = ({ label, error, hint, options, className = '', ...props }: SelectProps) => {
     return (
         <div className="flex flex-col gap-1 w-full">
-            {label && <label className="text-sm font-medium text-text-main">{label}</label>}
+            {label && (
+                <label className="text-sm font-medium text-text-main">
+                    {label}{props.required && <span className="text-red-500"> *</span>}
+                </label>
+            )}
             <div className="relative">
                 <select
                     className={`w-full px-3 py-2.5 border rounded-lg appearance-none bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${error ? 'border-red-500' : 'border-gray-300'

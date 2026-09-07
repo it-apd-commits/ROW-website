@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
+import { Input } from '@/components/common/Input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { type UserRole, type UserProfile } from '@/types/rbac';
-import { Shield, Users, Activity, Lock, Search, Check, X, RefreshCw, Key, FileUp, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Shield, Users, Activity, Lock, Search, Check, X, RefreshCw, Key, FileUp, Trash2, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 import { ScheduleUpload } from '@/components/admin/ScheduleUpload';
 import { ScheduleHistory } from '@/components/admin/ScheduleHistory';
 
@@ -29,6 +30,10 @@ export function AdminControlPage() {
     const [deleteModal, setDeleteModal] = useState<{ open: boolean; userId: string; userName: string; userEmail: string } | null>(null);
     const [deleteConfirmText, setDeleteConfirmText] = useState('');
     const [deleting, setDeleting] = useState(false);
+    const [addUserModalOpen, setAddUserModalOpen] = useState(false);
+    const [newUser, setNewUser] = useState({ full_name: '', email: '', role: 'Staff' as UserRole });
+    const [addUserError, setAddUserError] = useState<string | null>(null);
+    const [addingUser, setAddingUser] = useState(false);
     const [logActionFilter, setLogActionFilter] = useState('');
     const [logFromDate, setLogFromDate] = useState('');
     const [logToDate, setLogToDate] = useState('');
@@ -207,6 +212,42 @@ export function AdminControlPage() {
         }
     };
 
+    const handleAddUser = async () => {
+        const fullName = newUser.full_name.trim();
+        const email = newUser.email.trim().toLowerCase();
+
+        if (!fullName || !email) {
+            setAddUserError('Please enter a name and email.');
+            return;
+        }
+
+        setAddingUser(true);
+        setAddUserError(null);
+        try {
+            const { data, error } = await supabase.functions.invoke('admin-invite-user', {
+                body: {
+                    full_name: fullName,
+                    email,
+                    role: newUser.role,
+                    redirectTo: `${window.location.origin}/auth/callback`,
+                },
+            });
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+
+            logAction('USER_INVITED', { target_email: email, role: newUser.role });
+            setAddUserModalOpen(false);
+            setNewUser({ full_name: '', email: '', role: 'Staff' });
+            fetchUsers();
+            alert(`Invite sent to ${email}.`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to invite user.';
+            setAddUserError(message);
+        } finally {
+            setAddingUser(false);
+        }
+    };
+
     if (role !== 'Admin') {
         return (
             <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-4">
@@ -272,7 +313,15 @@ export function AdminControlPage() {
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
-                        <Button onClick={fetchUsers} variant="outline" className="text-xs py-1 px-3">Refresh List</Button>
+                        <div className="flex gap-2">
+                            <Button onClick={fetchUsers} variant="outline" className="text-xs py-1 px-3">Refresh List</Button>
+                            <Button
+                                onClick={() => { setAddUserModalOpen(true); setAddUserError(null); }}
+                                className="text-xs py-1 px-3"
+                            >
+                                <UserPlus size={14} className="mr-1" /> Add User
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -596,6 +645,71 @@ export function AdminControlPage() {
                                 className="text-sm bg-red-600 hover:bg-red-700 text-white border-0 disabled:opacity-50"
                             >
                                 {deleting ? 'Deleting...' : 'Delete User'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Add User Modal */}
+            {addUserModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                <UserPlus size={20} className="text-primary" />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-gray-900">Add User</h3>
+                                <p className="text-sm text-text-muted">They'll get an email invite to set their password.</p>
+                            </div>
+                        </div>
+
+                        {addUserError && (
+                            <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg">{addUserError}</div>
+                        )}
+
+                        <div className="space-y-3">
+                            <Input
+                                label="Full Name"
+                                value={newUser.full_name}
+                                onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
+                                placeholder="Jane Doe"
+                            />
+                            <Input
+                                label="Email"
+                                type="email"
+                                value={newUser.email}
+                                onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                                placeholder="jane@apd-india.org"
+                            />
+                            <div className="flex flex-col gap-1">
+                                <label className="text-sm font-medium text-text-main">Role</label>
+                                <select
+                                    value={newUser.role}
+                                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+                                    className="px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                                >
+                                    <option value="Admin">Admin</option>
+                                    <option value="Manager">Manager</option>
+                                    <option value="Staff">Staff</option>
+                                    <option value="MIS">MIS</option>
+                                    <option value="Fleet">Fleet</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 justify-end">
+                            <Button
+                                variant="outline"
+                                onClick={() => { setAddUserModalOpen(false); setAddUserError(null); }}
+                                disabled={addingUser}
+                                className="text-sm"
+                            >
+                                Cancel
+                            </Button>
+                            <Button onClick={handleAddUser} disabled={addingUser} className="text-sm">
+                                {addingUser ? 'Sending Invite...' : 'Send Invite'}
                             </Button>
                         </div>
                     </div>
