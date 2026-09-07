@@ -25,14 +25,14 @@ export function AssessmentEntryPage() {
     // Demographics handed over from "Save & Continue to Assessment" on Add Beneficiary.
     const prefill = (location.state as { prefillBeneficiary?: {
         name?: string; age?: string; gender?: string; mobileNo?: string; city?: string; address?: string;
-        beneficiaryId?: string; beneficiaryOfflineToken?: string;
+        dateOfRegistration?: string; beneficiaryId?: string; beneficiaryOfflineToken?: string;
     } } | null)?.prefillBeneficiary;
     const isOnline = useOnlineStatus();
     const [activeStep, setActiveStep] = useState<Step>(1);
     const [initialData, setInitialData] = useState<InitialAssessment | null>(null);
     const [clinicalData, setClinicalData] = useState<ClinicalAssessment | null>(null);
     const [initialFormData, setInitialFormData] = useState<Partial<InitialAssessment>>(() => ({
-        assessment_date: new Date().toISOString().split('T')[0],
+        assessment_date: prefill?.dateOfRegistration || new Date().toISOString().split('T')[0],
         ...(prefill ? {
             patient_name: prefill.name || '',
             ...(prefill.age ? { age: Number(prefill.age) } : {}),

@@ -110,6 +110,7 @@ export function AddBeneficiaryPage() {
                     mobileNo: formData.mobileNo,
                     city: formData.city,
                     address: formData.address,
+                    dateOfRegistration: formData.dateOfRegistration,
                     beneficiaryId: beneficiaryId ?? undefined,
                     beneficiaryOfflineToken,
                 },
