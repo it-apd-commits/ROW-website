@@ -105,13 +105,20 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
         }
     }, [data.patient_name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Auto-generate Patient ID for new assessments
+    // Auto-generate Patient ID for new assessments. Guarded against this
+    // component unmounting before the async call resolves (e.g. a transient
+    // "new record" mount that gets replaced once an existing patient's real
+    // data finishes loading) — without this, the stale callback would fire
+    // later and overwrite the real data with a blank record + a freshly
+    // generated ID.
     useEffect(() => {
-        if (!isEdit && !data.patient_id) {
-            assessmentService.generatePatientId().then(id => {
-                onChange({ ...data, patient_id: id });
-            });
-        }
+        if (isEdit || data.patient_id) return;
+        let cancelled = false;
+        assessmentService.generatePatientId().then(id => {
+            if (cancelled) return;
+            onChange({ ...data, patient_id: id });
+        });
+        return () => { cancelled = true; };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const set = (field: string, value: string | number) => {

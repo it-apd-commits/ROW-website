@@ -950,6 +950,7 @@ export function ClinicalAssessmentForm({ initialData, existingClinical, onSaved 
             <CoreServiceDetails
                 ref={serviceRef}
                 patientName={initialData.patient_name}
+                beneficiaryId={initialData.beneficiary_id ?? initialData.beneficiary_offline_token}
                 defaultDate={initialData.assessment_date}
                 onServiceDataChange={handleServiceDataChange}
             />

@@ -29,7 +29,18 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
     const [selectedBeneficiary, setSelectedBeneficiary] = useState<Beneficiary | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    // Initial fetch if selectedId or selectedFileNumber is provided
+    // Parent's onSelect is usually an inline arrow function (a fresh reference
+    // every render) — keep it in a ref so the auto-fetch effect below can call
+    // the latest version without needing onSelect in its dependency array
+    // (which would otherwise re-run the effect, and refetch, on every render).
+    const onSelectRef = useRef(onSelect);
+    useEffect(() => { onSelectRef.current = onSelect; });
+
+    // Initial fetch if selectedId or selectedFileNumber is provided. Beyond
+    // just showing the resolved name in the box, this must also notify the
+    // parent via onSelect — otherwise a pre-selected beneficiary (e.g. the one
+    // already known from the Initial Assessment step) displays correctly but
+    // the parent's own state (file_number) never actually gets populated.
     useEffect(() => {
         if ((selectedId || selectedFileNumber) && !selectedBeneficiary) {
             const fetchSelected = async () => {
@@ -44,6 +55,7 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
                 if (!error && data) {
                     setSelectedBeneficiary(data);
                     setSearchTerm(`${data.file_number || 'N/A'} - ${data.name}`);
+                    onSelectRef.current(data);
                     return;
                 }
 
@@ -64,6 +76,7 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
                     };
                     setSelectedBeneficiary(b);
                     setSearchTerm(`${b.file_number || 'N/A'} - ${b.name}`);
+                    onSelectRef.current(b);
                 }
             };
             fetchSelected();

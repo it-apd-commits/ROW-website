@@ -45,7 +45,13 @@ export function AssessmentEntryPage() {
             beneficiary_offline_token: prefill.beneficiaryOfflineToken ?? null,
         } : {}),
     }));
-    const [isLoadingExisting, setIsLoadingExisting] = useState(false);
+    // Start "loading" immediately when editing an existing patient (patientId
+    // present in the URL) so InitialAssessmentForm never gets a transient
+    // first mount in "new record" mode before loadExistingPatient resolves —
+    // that transient mount used to kick off its own auto-generate-Patient-ID
+    // effect, which could then clobber the just-loaded real data once it
+    // resolved (see the cancellation guard in InitialAssessmentForm).
+    const [isLoadingExisting, setIsLoadingExisting] = useState(!!patientId);
     const [saveNotice, setSaveNotice] = useState<{ message: string; offline: boolean } | null>(null);
 
     useEffect(() => {

@@ -46,6 +46,7 @@ interface ServiceFormData {
 
 interface Props {
     patientName?: string;
+    beneficiaryId?: string | null;
     defaultDate?: string;
     onServiceDataChange?: (payloads: ServiceEntryPayload[] | null, isValid: boolean) => void;
 }
@@ -56,7 +57,7 @@ export interface CoreServiceDetailsRef {
 }
 
 export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
-    function CoreServiceDetails({ defaultDate, onServiceDataChange }, ref) {
+    function CoreServiceDetails({ beneficiaryId, defaultDate, onServiceDataChange }, ref) {
         const today = defaultDate || new Date().toISOString().split('T')[0];
 
         const [formData, setFormData] = useState<ServiceFormData>({
@@ -234,6 +235,7 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
                             onSelect={(b) => {
                                 handleChange('file_number', b.file_number ?? b.id);
                             }}
+                            selectedId={beneficiaryId || undefined}
                         />
                         {errors.file_number && (
                             <span className="text-xs text-red-500 mt-1 block">{errors.file_number}</span>
