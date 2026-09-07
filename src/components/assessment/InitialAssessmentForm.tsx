@@ -338,14 +338,14 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                                 label="Service Referral / Assessment Needed"
                                 value={data.service_referral_needed || ''}
                                 onChange={e => set('service_referral_needed', e.target.value)}
-                                options={toOptions(DROPDOWNS.ServiceReferralNeeded)}
+                                options={[{ value: '', label: '-- None --' }, ...toOptions(DROPDOWNS.ServiceReferralNeeded)]}
                                 error={errors.service_referral_needed}
                             />
                             <Select
                                 label="Reason for Referral / Assessment"
                                 value={data.referral_reason || ''}
                                 onChange={e => set('referral_reason', e.target.value)}
-                                options={toOptions(DROPDOWNS.ReferralReason)}
+                                options={[{ value: '', label: '-- None --' }, ...toOptions(DROPDOWNS.ReferralReason)]}
                                 error={errors.referral_reason}
                             />
                         </>
