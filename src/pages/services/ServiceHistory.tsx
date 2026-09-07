@@ -109,7 +109,9 @@ export function ServiceHistoryPage() {
                     // truncating the list (and its location filter options) once
                     // service_entries passed 1000 rows.
                     const entries = await fetchAllRows<ServiceEntry>(() =>
-                        supabase.from('service_entries').select('*').order('schedule_date', { ascending: false })
+                        supabase.from('service_entries').select('*')
+                            .order('schedule_date', { ascending: false })
+                            .order('created_at', { ascending: false })
                     );
 
                     if (entries && entries.length > 0) {

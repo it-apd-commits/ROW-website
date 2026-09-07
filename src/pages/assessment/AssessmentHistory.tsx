@@ -158,7 +158,9 @@ export function AssessmentHistoryPage() {
                 // truncate the list (and its location/donor filter options)
                 // once these tables passed 1000 rows.
                 const initials = await fetchAllRows<AssessmentRecord>(() =>
-                    supabase.from('initial_assessment').select('*').order('assessment_date', { ascending: false })
+                    supabase.from('initial_assessment').select('*')
+                        .order('assessment_date', { ascending: false })
+                        .order('created_at', { ascending: false })
                 );
 
                 if (initials.length > 0) {
