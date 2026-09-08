@@ -15,6 +15,7 @@ import {
     Stethoscope,
     ClipboardList,
     Eye,
+    Edit,
 } from 'lucide-react';
 import type { OfflineBeneficiary } from '@/lib/db';
 import type { ServiceEntry } from '@/types/serviceEntry';
@@ -601,11 +602,24 @@ export function BeneficiaryProfilePage() {
 
                         {/* Session History / Outcome Summary for the most recent assessment */}
                         {assessments.length > 0 && (
-                            <AssessmentSessionSummary
-                                condition={assessments[0].primary_condition}
-                                clinical={latestSession?.clinical ?? null}
-                                followUps={latestSession?.followUps ?? []}
-                            />
+                            <>
+                                <AssessmentSessionSummary
+                                    condition={assessments[0].primary_condition}
+                                    clinical={latestSession?.clinical ?? null}
+                                    followUps={latestSession?.followUps ?? []}
+                                />
+                                <div className="flex items-center justify-between bg-surface p-5 rounded-xl border border-gray-100 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <Activity size={18} className="text-primary" />
+                                        <span className="text-sm text-text-muted">
+                                            Need to update this assessment? Edit any step below.
+                                        </span>
+                                    </div>
+                                    <Button onClick={() => navigate(`/assessments/edit/${assessments[0].patient_id}`, { state: { startStep: 3, openFollowUpSession: true } })}>
+                                        <Edit size={16} className="mr-2 inline" /> Edit Follow Up
+                                    </Button>
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
