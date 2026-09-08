@@ -618,7 +618,7 @@ export function AssessmentViewPage() {
                         Need to update this assessment? Edit any step below.
                     </span>
                 </div>
-                <Button onClick={() => navigate(`/assessments/edit/${initial.patient_id}`, { state: { startStep: 3 } })}>
+                <Button onClick={() => navigate(`/assessments/edit/${initial.patient_id}`, { state: { startStep: 3, openFollowUpSession: true } })}>
                     <Edit size={16} className="mr-2 inline" /> Edit Follow Up
                 </Button>
             </div>

@@ -55,9 +55,10 @@ const TREATMENT_PLAN = {
 interface Props {
     initialData: InitialAssessment | null;
     onEditClinical?: () => void;
+    autoOpenNew?: boolean;
 }
 
-export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
+export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNew }: Props) {
     const condition = initialData?.primary_condition ?? '';
     const isEI = condition === 'Early Intervention Assessment';
     const patientId = initialData?.patient_id ?? '';
@@ -193,6 +194,12 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical }: Props) {
         setShowForm(true);
         setErrors({});
     };
+
+    // Auto-open the new-session form once history has loaded, when arriving
+    // via "Edit Follow Up" so the fields are visible without an extra click.
+    useEffect(() => {
+        if (autoOpenNew && !isLoading && !showForm) openNew();
+    }, [autoOpenNew, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const closeForm = () => {
         setShowForm(false);

@@ -29,6 +29,9 @@ export function AssessmentEntryPage() {
     } } | null)?.prefillBeneficiary;
     // Which step to land on when editing an existing patient (e.g. "Edit Assessment" vs "Edit Follow Up").
     const startStep = (location.state as { startStep?: Step } | null)?.startStep;
+    // Set from AssessmentView's "Edit Follow Up" button so the new-session
+    // fields open automatically instead of requiring an extra click.
+    const openFollowUpSession = (location.state as { openFollowUpSession?: boolean } | null)?.openFollowUpSession;
     const isOnline = useOnlineStatus();
     const [activeStep, setActiveStep] = useState<Step>(1);
     const [initialData, setInitialData] = useState<InitialAssessment | null>(null);
@@ -240,6 +243,7 @@ export function AssessmentEntryPage() {
                         key={initialData ? initialData.patient_id : 'new'}
                         initialData={initialData}
                         onEditClinical={() => setActiveStep(2)}
+                        autoOpenNew={!!openFollowUpSession}
                     />
                     {step2Done && (
                         <div className="flex justify-center pt-2">
