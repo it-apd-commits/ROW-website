@@ -18,10 +18,12 @@ import {
 } from 'lucide-react';
 import type { OfflineBeneficiary } from '@/lib/db';
 import type { ServiceEntry } from '@/types/serviceEntry';
-import type { InitialAssessment } from '@/types/assessment';
+import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useGoBack } from '@/hooks/useGoBack';
 import { AssignFileNumberModal, type AssignFileNumberTarget } from '@/components/beneficiary/AssignFileNumberModal';
+import { AssessmentSessionSummary } from '@/components/assessment/AssessmentSessionSummary';
+import { assessmentService } from '@/services/assessmentService';
 
 interface Service {
     id: string;
@@ -70,6 +72,10 @@ export function BeneficiaryProfilePage() {
     const [isLoading, setIsLoading] = useState(true);
     const [assignTarget, setAssignTarget] = useState<AssignFileNumberTarget | null>(null);
     const { canImportFileNumbers } = usePermissions();
+    // Session History + Outcome Summary for the most recent assessment, shown
+    // as its own section below Assessment History (same data/layout as the
+    // full Assessment View page).
+    const [latestSession, setLatestSession] = useState<{ clinical: ClinicalAssessment | null; followUps: FollowUpAssessment[] } | null>(null);
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -183,6 +189,18 @@ export function BeneficiaryProfilePage() {
                 }
             }
             setAssessments(assessmentSummaries);
+
+            // Session History / Outcome Summary is shown for the most recent
+            // assessment (assessmentSummaries is sorted latest-first above).
+            if (assessmentSummaries.length > 0) {
+                const [clinical, followUps] = await Promise.all([
+                    assessmentService.getClinical(assessmentSummaries[0].patient_id),
+                    assessmentService.getFollowUps(assessmentSummaries[0].patient_id),
+                ]);
+                setLatestSession({ clinical, followUps });
+            } else {
+                setLatestSession(null);
+            }
 
         } catch (error) {
             console.error('Error fetching data:', error);
@@ -580,6 +598,15 @@ export function BeneficiaryProfilePage() {
                                 </div>
                             )}
                         </Card>
+
+                        {/* Session History / Outcome Summary for the most recent assessment */}
+                        {assessments.length > 0 && (
+                            <AssessmentSessionSummary
+                                condition={assessments[0].primary_condition}
+                                clinical={latestSession?.clinical ?? null}
+                                followUps={latestSession?.followUps ?? []}
+                            />
+                        )}
                     </div>
                 </div>
         </div>
