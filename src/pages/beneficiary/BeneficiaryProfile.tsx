@@ -146,8 +146,18 @@ export function BeneficiaryProfilePage() {
                 if (byName.error) throw byName.error;
                 if (byPhone.error) throw byPhone.error;
 
+                // A shared household phone number is common (spouses, parent + adult
+                // child) — matching on phone alone can pull in a family member's
+                // assessment instead of this beneficiary's own. Since it's the least
+                // precise of the three signals, require its gender to agree with this
+                // beneficiary's before trusting it (byId/byName need no such check —
+                // an exact ID link or name substring is already specific enough).
+                const genderMatchedByPhone = (byPhone.data || []).filter((i: InitialAssessment) =>
+                    !bData.gender || !i.gender || i.gender === bData.gender
+                );
+
                 const seen = new Set<string>();
-                const initials = [...(byId.data || []), ...(byName.data || []), ...(byPhone.data || [])]
+                const initials = [...(byId.data || []), ...(byName.data || []), ...genderMatchedByPhone]
                     .filter((i: InitialAssessment) => (seen.has(i.patient_id) ? false : (seen.add(i.patient_id), true)))
                     .sort((a: InitialAssessment, b: InitialAssessment) => b.assessment_date.localeCompare(a.assessment_date));
 
