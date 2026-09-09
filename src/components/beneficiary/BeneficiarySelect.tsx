@@ -6,10 +6,15 @@ import { Card } from '@/components/common/Card';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 
-interface Beneficiary {
+export interface Beneficiary {
     id: string;
     name: string;
     file_number: string | null;
+    age?: number | null;
+    gender?: string | null;
+    mobile_no?: string | null;
+    city?: string | null;
+    address?: string | null;
     _isOffline?: boolean;
 }
 
@@ -45,7 +50,7 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
         if ((selectedId || selectedFileNumber) && !selectedBeneficiary) {
             const fetchSelected = async () => {
                 // Try Supabase first
-                let query = supabase.from('beneficiaries').select('id, name, file_number');
+                let query = supabase.from('beneficiaries').select('id, name, file_number, age, gender, mobile_no, city, address');
                 if (selectedId) {
                     query = query.eq('id', selectedId);
                 } else if (selectedFileNumber) {
@@ -72,6 +77,11 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
                         id: offline.offline_token,
                         name: offline.name,
                         file_number: offline.file_number ?? offline.offline_token,
+                        age: offline.age,
+                        gender: offline.gender,
+                        mobile_no: offline.mobile_no,
+                        city: offline.city,
+                        address: offline.address,
                         _isOffline: offline.sync_status !== 'synced',
                     };
                     setSelectedBeneficiary(b);
@@ -105,7 +115,7 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
             ? Promise.resolve(
                 supabase
                     .from('beneficiaries')
-                    .select('id, name, file_number')
+                    .select('id, name, file_number, age, gender, mobile_no, city, address')
                     // Use PostgREST `*` wildcard — avoids URL percent-encoding issues
                     // that occur when `%` is used directly in .or() filter strings.
                     .or(`name.ilike.*${term}*,file_number.ilike.*${term}*,name.ilike.${prefix}*`)
@@ -148,6 +158,11 @@ export function BeneficiarySelect({ onSelect, selectedId, selectedFileNumber, pl
                 id: b.sync_status === 'synced' ? (b.id ?? b.offline_token) : b.offline_token,
                 name: b.name,
                 file_number: b.file_number ?? b.offline_token,
+                age: b.age,
+                gender: b.gender,
+                mobile_no: b.mobile_no,
+                city: b.city,
+                address: b.address,
                 _isOffline: b.sync_status !== 'synced',
             }));
 

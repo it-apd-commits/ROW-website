@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
@@ -6,8 +6,8 @@ import { Button } from '@/components/common/Button';
 import { DROPDOWNS, toOptions } from '@/constants/assessmentDropdowns';
 import type { InitialAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
-import { supabase } from '@/lib/supabase';
-import { User, Stethoscope, Save, Loader2, Search, WifiOff } from 'lucide-react';
+import { BeneficiarySelect, type Beneficiary } from '@/components/beneficiary/BeneficiarySelect';
+import { User, Stethoscope, Save, Loader2, WifiOff } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 interface Props {
@@ -17,93 +17,29 @@ interface Props {
     isEdit: boolean;
 }
 
-interface BeneficiarySuggestion {
-    id: string;
-    name: string;
-    age: number;
-    gender: string;
-    mobile_no?: string;
-    city?: string;
-    address?: string;
-}
-
 export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props) {
     const isOnline = useOnlineStatus();
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSaving, setIsSaving] = useState(false);
-    const [nameQuery, setNameQuery] = useState(data.patient_name || '');
-    const [suggestions, setSuggestions] = useState<BeneficiarySuggestion[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [isSearching, setIsSearching] = useState(false);
-    const suggestionRef = useRef<HTMLDivElement>(null);
-    const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-    // Close dropdown on outside click
-    useEffect(() => {
-        const handleClick = (e: MouseEvent) => {
-            if (suggestionRef.current && !suggestionRef.current.contains(e.target as Node)) {
-                setShowSuggestions(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClick);
-        return () => document.removeEventListener('mousedown', handleClick);
-    }, []);
-
-    // Search beneficiaries as user types
-    const searchBeneficiaries = useCallback(async (query: string) => {
-        if (query.trim().length < 2) {
-            setSuggestions([]);
-            setShowSuggestions(false);
-            return;
-        }
-        setIsSearching(true);
-        try {
-            const { data: results } = await supabase
-                .from('beneficiaries')
-                .select('id, name, age, gender, mobile_no, city, address')
-                .ilike('name', `%${query}%`)
-                .order('name')
-                .limit(10);
-            setSuggestions(results || []);
-            setShowSuggestions(true);
-        } finally {
-            setIsSearching(false);
-        }
-    }, []);
-
-    const handleNameChange = (value: string) => {
-        setNameQuery(value);
-        onChange({ ...data, patient_name: value });
-        if (errors.patient_name) setErrors(prev => { const n = { ...prev }; delete n.patient_name; return n; });
-
-        // Debounced search
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => searchBeneficiaries(value), 300);
-    };
-
-    const handleSelectBeneficiary = (b: BeneficiarySuggestion) => {
-        setNameQuery(b.name);
-        setShowSuggestions(false);
+    // A phone number is often shared across a household (spouses, parent +
+    // adult child) — it can't reliably tell two people apart. Requiring the
+    // beneficiary to be picked from the register (like Service Entry already
+    // does) is what actually guarantees this assessment is tied to the right
+    // person, instead of guessing from name/phone after the fact.
+    const handleSelectBeneficiary = (b: Beneficiary) => {
         onChange({
             ...data,
             patient_name: b.name,
-            age: b.age,
-            gender: b.gender,
+            age: b.age ?? data.age,
+            gender: b.gender || data.gender,
             phone: b.mobile_no || data.phone || '',
             village: b.city || b.address || data.village || '',
-            // Selected from a live search of the beneficiaries table, so this is
-            // always a real, already-synced ID.
-            beneficiary_id: b.id,
-            beneficiary_offline_token: null,
+            beneficiary_id: b._isOffline ? null : b.id,
+            beneficiary_offline_token: b._isOffline ? b.id : null,
         });
+        if (errors.patient_name) setErrors(prev => { const n = { ...prev }; delete n.patient_name; return n; });
     };
-
-    // Sync nameQuery when data changes externally (e.g. loading existing patient)
-    useEffect(() => {
-        if (data.patient_name && data.patient_name !== nameQuery) {
-            setNameQuery(data.patient_name);
-        }
-    }, [data.patient_name]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Auto-generate Patient ID for new assessments. Guarded against this
     // component unmounting before the async call resolves (e.g. a transient
@@ -132,7 +68,11 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
         const e: Record<string, string> = {};
         if (!data.patient_id?.trim()) e.patient_id = 'Patient ID is required';
         if (!data.assessment_date) e.assessment_date = 'Assessment date is required';
-        if (!data.patient_name || data.patient_name.trim().length < 2) e.patient_name = 'Name must be at least 2 characters';
+        if (!data.beneficiary_id && !data.beneficiary_offline_token) {
+            e.patient_name = 'Select the beneficiary from the register — a phone number alone can\'t tell family members apart';
+        } else if (!data.patient_name || data.patient_name.trim().length < 2) {
+            e.patient_name = 'Name must be at least 2 characters';
+        }
         if (!data.age || data.age < 1 || data.age > 120) e.age = 'Age must be between 1 and 120';
         if (!data.gender) e.gender = 'Gender is required';
         if (data.phone && !/^\d{10}$/.test(data.phone)) e.phone = 'Enter a valid 10-digit phone number';
@@ -221,45 +161,14 @@ export function InitialAssessmentForm({ data, onChange, onSaved, isEdit }: Props
                         error={errors.assessment_date}
                         required
                     />
-                    <div className="relative" ref={suggestionRef}>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-sm font-medium text-text-main">Patient Name <span className="text-red-500">*</span></label>
-                            <div className="relative">
-                                <input
-                                    className={`w-full px-3 py-2 pr-8 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary ${errors.patient_name ? 'border-red-500' : 'border-gray-300'}`}
-                                    value={nameQuery}
-                                    onChange={e => handleNameChange(e.target.value)}
-                                    onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
-                                    placeholder="Type to search beneficiaries..."
-                                />
-                                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400">
-                                    {isSearching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                                </div>
-                            </div>
-                            {errors.patient_name && <span className="text-xs text-red-500">{errors.patient_name}</span>}
-                        </div>
-                        {showSuggestions && suggestions.length > 0 && (
-                            <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                                {suggestions.map(b => (
-                                    <button
-                                        key={b.id}
-                                        type="button"
-                                        className="w-full text-left px-3 py-2.5 hover:bg-primary/5 border-b border-gray-50 last:border-0 cursor-pointer transition-colors"
-                                        onClick={() => handleSelectBeneficiary(b)}
-                                    >
-                                        <div className="font-medium text-sm text-text-main">{b.name}</div>
-                                        <div className="text-xs text-text-muted">
-                                            Age: {b.age} &bull; {b.gender} {b.mobile_no ? `\u2022 ${b.mobile_no}` : ''} {b.city ? `\u2022 ${b.city}` : ''}
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                        {showSuggestions && suggestions.length === 0 && nameQuery.trim().length >= 2 && !isSearching && (
-                            <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2.5 text-sm text-text-muted">
-                                No matching beneficiaries found
-                            </div>
-                        )}
+                    <div>
+                        <BeneficiarySelect
+                            placeholder="Patient Name (Search Beneficiary Register)"
+                            required
+                            onSelect={handleSelectBeneficiary}
+                            selectedId={data.beneficiary_id ?? data.beneficiary_offline_token ?? undefined}
+                        />
+                        {errors.patient_name && <span className="text-xs text-red-500 mt-1 block">{errors.patient_name}</span>}
                     </div>
                     <Input
                         label="Age"
