@@ -61,7 +61,7 @@ export const CoreServiceDetails = forwardRef<CoreServiceDetailsRef, Props>(
         const today = defaultDate || new Date().toISOString().split('T')[0];
 
         const [formData, setFormData] = useState<ServiceFormData>({
-            status: 'SCHEDULED',
+            status: 'AVAILED',
             file_number: null,
             schedule_date: today,
             start_date: today,

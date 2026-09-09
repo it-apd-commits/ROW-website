@@ -42,7 +42,7 @@ export function ServiceEntryPage() {
     const isEdit = !!id;
 
     const [formData, setFormData] = useState<Partial<ServiceEntry>>({
-        status: 'SCHEDULED',
+        status: 'AVAILED',
         file_number: null,
         schedule_date: new Date().toISOString().split('T')[0],
         start_date: new Date().toISOString().split('T')[0],
