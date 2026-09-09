@@ -163,6 +163,21 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
         }
     }, [clinicalData]);
 
+    const openNew = () => {
+        setEditingSession(null);
+        setData(newForm());
+        setShowForm(true);
+        setErrors({});
+    };
+
+    // Auto-open the new-session form once history has loaded, when arriving
+    // via "Edit Follow Up" so the fields are visible without an extra click.
+    // Must run unconditionally (before the !initialData early return below) —
+    // hooks can't be called conditionally.
+    useEffect(() => {
+        if (autoOpenNew && initialData && !isLoading && !showForm) openNew();
+    }, [autoOpenNew, initialData, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
     if (!initialData) {
         return (
             <Card>
@@ -191,19 +206,6 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
         setShowForm(true);
         setErrors({});
     };
-
-    const openNew = () => {
-        setEditingSession(null);
-        setData(newForm());
-        setShowForm(true);
-        setErrors({});
-    };
-
-    // Auto-open the new-session form once history has loaded, when arriving
-    // via "Edit Follow Up" so the fields are visible without an extra click.
-    useEffect(() => {
-        if (autoOpenNew && !isLoading && !showForm) openNew();
-    }, [autoOpenNew, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const closeForm = () => {
         setShowForm(false);
