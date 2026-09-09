@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
@@ -86,8 +86,15 @@ export function BeneficiaryListPage() {
         }, { replace: true });
     }, [setSearchParams]);
 
+    // Only the very first fetch should show the full-page spinner. A background
+    // refetch (realtime change, tab regaining focus) reusing isLoading would
+    // unmount the rendered grid, collapsing the scrollable area's height and
+    // resetting scrollTop toward 0 — silently undoing the scroll restore below
+    // even though the user never left the page.
+    const hasLoadedOnceRef = useRef(false);
+
     const fetchBeneficiaries = useCallback(async () => {
-        setIsLoading(true);
+        if (!hasLoadedOnceRef.current) setIsLoading(true);
         try {
             // 1. Fetch from Supabase (if online). Paginated via fetchAllRows: a
             // single request is capped at Supabase's default 1000-row limit,
@@ -115,6 +122,7 @@ export function BeneficiaryListPage() {
             const unique = Array.from(new Map(merged.map(item => [item.offline_token || item.id, item])).values());
 
             setBeneficiaries(unique);
+            hasLoadedOnceRef.current = true;
         } catch (error) {
             console.error('Error fetching beneficiaries:', error);
         } finally {
