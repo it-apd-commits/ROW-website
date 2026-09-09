@@ -9,7 +9,7 @@ import { getVASCategory, isDisabilityCondition } from '@/utils/assessmentLogic';
 import type { InitialAssessment, ClinicalAssessment, FollowUpAssessment } from '@/types/assessment';
 import { assessmentService } from '@/services/assessmentService';
 import { auditService } from '@/services/auditService';
-import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, X, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff, CheckCircle2 } from 'lucide-react';
+import { Calendar, ClipboardList, Plus, Save, Loader2, Edit, Trash2, X, Baby, Dumbbell, Zap, Home, Shield, Wrench, WifiOff, CheckCircle2 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { RecommendedExercises } from './RecommendedExercises';
 
@@ -72,6 +72,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
     const [editingSession, setEditingSession] = useState<FollowUpAssessment | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [lastSaved, setLastSaved] = useState<{ offline: boolean } | null>(null);
+    const [deletingSession, setDeletingSession] = useState<number | null>(null);
 
     useEffect(() => {
         if (!lastSaved) return;
@@ -92,7 +93,10 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
         prosthesis: [],
     });
 
-    const nextSession = history.length + 1;
+    // Highest session number seen + 1, not history.length + 1 — a deleted
+    // middle session (e.g. #3 of 1,2,3,4,5) would otherwise leave a gap that
+    // makes length-based numbering collide with a still-existing later session.
+    const nextSession = history.length === 0 ? 1 : Math.max(...history.map(h => h.session_number)) + 1;
     const today = new Date().toISOString().split('T')[0];
 
     const latestVasCurrent = (() => {
@@ -347,6 +351,29 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
         }
     };
 
+    const handleDelete = async (session: FollowUpAssessment) => {
+        if (!isOnline) {
+            setErrors({ _form: 'Deleting a session requires an active connection. Please reconnect and try again.' });
+            return;
+        }
+        if (!window.confirm(`Delete Follow-Up Session #${session.session_number} (${session.visit_date})? This cannot be undone.`)) return;
+
+        setDeletingSession(session.session_number);
+        try {
+            await assessmentService.deleteFollowUp(session);
+            auditService.log('ASSESSMENT_FOLLOWUP_DELETED', { patient_id: patientId, patient_name: initialData?.patient_name, session_number: session.session_number });
+            if (editingSession?.session_number === session.session_number) closeForm();
+            await loadHistory();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message
+                : (err && typeof err === 'object' && 'message' in err) ? String((err as { message: string }).message)
+                : 'Failed to delete';
+            setErrors({ _form: msg });
+        } finally {
+            setDeletingSession(null);
+        }
+    };
+
     if (isLoading) return <Loader />;
 
     return (
@@ -572,12 +599,24 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
                                             </>
                                         )}
                                         <td className="py-2 px-3 text-right">
-                                            <button
-                                                onClick={() => openEdit(row)}
-                                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"
-                                            >
-                                                <Edit size={12} /> Edit
-                                            </button>
+                                            <div className="inline-flex items-center gap-1.5">
+                                                <button
+                                                    onClick={() => openEdit(row)}
+                                                    disabled={deletingSession === row.session_number}
+                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    <Edit size={12} /> Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(row)}
+                                                    disabled={deletingSession === row.session_number}
+                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    {deletingSession === row.session_number
+                                                        ? <span className="w-3 h-3 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />
+                                                        : <Trash2 size={12} />} Delete
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

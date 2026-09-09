@@ -265,6 +265,23 @@ export const assessmentService = {
         return result as FollowUpAssessment;
     },
 
+    async deleteFollowUp(session: FollowUpAssessment): Promise<void> {
+        if (!navigator.onLine) throw new Error('Cannot delete a session while offline. Please reconnect and try again.');
+
+        // A session that hasn't synced yet has no real id (see getFollowUps'
+        // onlyLocal mapping below) — there's nothing on the server to delete,
+        // so only the local cache entry needs removing.
+        if (session.id != null) {
+            const { error } = await supabase
+                .from('follow_up_assessment')
+                .delete()
+                .eq('id', session.id);
+            if (error) { console.error('Delete follow-up error:', error); throw error; }
+        }
+
+        await db.offline_follow_up_assessments.delete([session.patient_id, session.session_number]);
+    },
+
     async getFollowUps(patientId: string): Promise<FollowUpAssessment[]> {
         const serverRecords: FollowUpAssessment[] = [];
 
