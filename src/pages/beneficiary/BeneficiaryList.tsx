@@ -155,21 +155,21 @@ export function BeneficiaryListPage() {
     // effect's cleanup once immediately, before the list has rendered anything
     // (scrollTop is still 0 at that instant) — silently overwriting the correct
     // value that was saved moments earlier when the page was left.
+    //
+    // Saves synchronously, in the scroll event itself, rather than deferring to
+    // the next animation frame: on a touch-driven flick scroll, the list can
+    // still be decelerating when the user taps a card, and a card's click is a
+    // separate event dispatched after this one finishes — so a synchronous
+    // write here is guaranteed to land before that click, with no timing gap
+    // where the very last bit of scroll movement could go unsaved.
     useEffect(() => {
         const scrollEl = document.querySelector('main');
         if (!scrollEl) return;
-        let queued = false;
-        const save = () => {
-            queued = false;
+        const handleScroll = () => {
             sessionStorage.setItem(SCROLL_POSITION_KEY, JSON.stringify({
                 main: scrollEl.scrollTop,
                 window: window.scrollY,
             }));
-        };
-        const handleScroll = () => {
-            if (queued) return;
-            queued = true;
-            requestAnimationFrame(save);
         };
         scrollEl.addEventListener('scroll', handleScroll, { passive: true });
         window.addEventListener('scroll', handleScroll, { passive: true });
