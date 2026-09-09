@@ -175,6 +175,57 @@ export const fetchGenderBreakdown = async (filter: ChartFilter): Promise<GenderB
     }
 };
 
+export interface AgeBreakdownBucket {
+    label: string;
+    range: string;
+    count: number;
+}
+
+export interface AgeBreakdown {
+    buckets: AgeBreakdownBucket[];
+    total: number;
+}
+
+// Ordered youngest to oldest; each beneficiary's age falls into exactly one.
+const AGE_CATEGORIES: { label: string; range: string; min: number; max: number }[] = [
+    { label: 'Early Childhood', range: '0–5 years', min: 0, max: 5 },
+    { label: 'Children', range: '6–14 years', min: 6, max: 14 },
+    { label: 'Adolescents & Youth', range: '15–24 years', min: 15, max: 24 },
+    { label: 'Adults', range: '25–59 years', min: 25, max: 59 },
+    { label: 'Older Adults', range: '60 and above', min: 60, max: Infinity },
+];
+
+export const fetchAgeBreakdown = async (filter: ChartFilter): Promise<AgeBreakdown> => {
+    try {
+        const rows = await fetchAllRows<{ age: number | null; donor: string | null; date_of_registration: string | null }>(() => {
+            let query = supabase.from('beneficiaries').select('age, donor, date_of_registration');
+            if (filter.startDate) query = query.gte('date_of_registration', filter.startDate);
+            if (filter.endDate) query = query.lte('date_of_registration', filter.endDate);
+            return query;
+        });
+
+        const donorScoped = isDonorScoped(filter);
+        const counts = new Array(AGE_CATEGORIES.length).fill(0);
+        let total = 0;
+
+        rows.forEach((r) => {
+            if (donorScoped && normalizeDonor(r.donor) !== filter.donor) return;
+            if (r.age === null || r.age === undefined || Number.isNaN(r.age)) return;
+            const bucketIndex = AGE_CATEGORIES.findIndex(c => r.age! >= c.min && r.age! <= c.max);
+            if (bucketIndex === -1) return;
+            counts[bucketIndex]++;
+            total++;
+        });
+
+        const buckets = AGE_CATEGORIES.map((c, i) => ({ label: c.label, range: c.range, count: counts[i] }));
+
+        return { buckets, total };
+    } catch (error) {
+        console.error('Error fetching age breakdown:', error);
+        return { buckets: AGE_CATEGORIES.map(c => ({ label: c.label, range: c.range, count: 0 })), total: 0 };
+    }
+};
+
 export const fetchUniqueLocations = async (): Promise<string[]> => {
     try {
         const { data, error } = await supabase

@@ -19,6 +19,7 @@ import { AssessmentVsReassessmentChart } from '@/components/dashboard/Assessment
 import { DonorBreakdownTable } from '@/components/dashboard/DonorBreakdownTable';
 import { ReferralReasonBreakdownTable } from '@/components/dashboard/ReferralReasonBreakdownTable';
 import { GenderBreakdownChart } from '@/components/dashboard/GenderBreakdownChart';
+import { AgeBreakdownChart } from '@/components/dashboard/AgeBreakdownChart';
 import type { DonorBreakdownRow } from '@/components/dashboard/DonorBreakdownTable';
 import type { ReferralReasonRow } from '@/components/dashboard/ReferralReasonBreakdownTable';
 import type { TimeFrame, ChartFilter } from '@/types/dashboard';
@@ -494,6 +495,7 @@ export function DashboardPage() {
                 {/* Side Panel: Donor Breakdown + Scheduled Camps */}
                 <div className="space-y-4 md:space-y-6">
                     <GenderBreakdownChart filter={chartFilter} />
+                    <AgeBreakdownChart filter={chartFilter} />
                     <DonorBreakdownTable rows={donorBreakdown} isLoading={isLoading} selectedDonor={donorFilter} />
                     <ReferralReasonBreakdownTable rows={referralBreakdown} isLoading={isLoading} />
 
