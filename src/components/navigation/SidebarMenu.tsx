@@ -4,13 +4,11 @@ import {
     MapPin,
     UserPlus,
     Users,
-    Stethoscope,
     History,
     BarChart3,
     RefreshCw,
     Ticket,
     Shield,
-    ClipboardList,
     Bus,
     Dumbbell,
 } from 'lucide-react';
@@ -37,8 +35,6 @@ const navEntries: NavEntry[] = [
     { type: 'item', path: '/beneficiary/list', label: 'Beneficiary List', icon: Users },
 
     { type: 'section', label: 'CLINICAL' },
-    { type: 'item', path: '/assessments/new', label: 'Assessment Entry', icon: ClipboardList },
-    { type: 'item', path: '/services/new', label: 'Service Entry', icon: Stethoscope },
     { type: 'item', path: '/assessments/history', label: 'Assessment History', icon: History },
     { type: 'item', path: '/services/history', label: 'Service History', icon: History },
     { type: 'item', path: '/exercises/manage', label: 'Exercise Library', icon: Dumbbell },
