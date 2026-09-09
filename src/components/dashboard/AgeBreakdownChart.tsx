@@ -23,6 +23,23 @@ const EMPTY_BREAKDOWN: AgeBreakdown = {
 
 const BAR_COLOR = '#00897B';
 
+// Two-line Y-axis tick (category name + its age range) — the default recharts
+// tick only supports a single line of text, and the range is useful enough
+// here that it shouldn't be tucked away in the hover tooltip alone.
+function CategoryTick({ x, y, payload, buckets }: { x?: number | string; y?: number | string; payload: { value: string }; buckets: AgeBreakdown['buckets'] }) {
+    const bucket = buckets.find(b => b.label === payload.value);
+    return (
+        <g transform={`translate(${x},${y})`}>
+            <text x={-6} y={-3} textAnchor="end" fill="#374151" fontSize={11} fontWeight={600}>
+                {payload.value}
+            </text>
+            <text x={-6} y={11} textAnchor="end" fill="#94a3b8" fontSize={9.5}>
+                {bucket?.range}
+            </text>
+        </g>
+    );
+}
+
 export function AgeBreakdownChart({ filter }: Props) {
     const [loading, setLoading] = useState(true);
     const [breakdown, setBreakdown] = useState<AgeBreakdown>(EMPTY_BREAKDOWN);
@@ -72,8 +89,8 @@ export function AgeBreakdownChart({ filter }: Props) {
                             <YAxis
                                 type="category"
                                 dataKey="label"
-                                width={110}
-                                tick={{ fontSize: 11, fill: '#64748b' }}
+                                width={130}
+                                tick={(props) => <CategoryTick {...props} buckets={breakdown.buckets} />}
                                 axisLine={false}
                                 tickLine={false}
                             />
