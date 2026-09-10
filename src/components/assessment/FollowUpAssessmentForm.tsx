@@ -483,7 +483,7 @@ export function FollowUpAssessmentForm({ initialData, onEditClinical, autoOpenNe
                                             <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Baseline</span>
                                         </td>
                                         <td className="py-2 px-3">
-                                            {clinicalData.created_at ? new Date(clinicalData.created_at).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                            {initialData.assessment_date ? new Date(initialData.assessment_date).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                                         </td>
                                         {!isEI && (
                                             <>
