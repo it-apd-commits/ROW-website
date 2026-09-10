@@ -121,45 +121,49 @@ export function BeneficiaryProfilePage() {
 
             // Fetch assessments. beneficiary_id is the reliable link when set (new
             // assessments, and older rows backfilled by a unique phone match — see
-            // add_beneficiary_id_to_initial_assessment.sql), but plenty of rows still
-            // predate it, so name/phone matching remains as a fallback for those.
-            // Separate queries (not a combined .or() filter) so a name containing a
-            // comma/parenthesis can't corrupt the filter string and silently zero out
-            // every match, and so name matching can be a tolerant substring search
-            // instead of requiring an exact full-string match.
+            // add_beneficiary_id_to_initial_assessment.sql). Name/phone matching is
+            // only used as a fallback for beneficiaries with NO beneficiary_id-linked
+            // rows at all — otherwise a substring name match (e.g. "padma") pulls in
+            // unrelated people whose name happens to contain it (e.g. "Padmamma").
             let assessmentSummaries: AssessmentSummary[] = [];
             const nameMatch = (bData.name || '').trim();
             const phoneMatch = (bData.mobile_no || '').trim();
             if (bData.id || nameMatch || phoneMatch) {
-                const [byId, byName, byPhone] = await Promise.all([
-                    bData.id
-                        ? supabase.from('initial_assessment').select('*').eq('beneficiary_id', bData.id)
-                        : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
-                    nameMatch
-                        ? supabase.from('initial_assessment').select('*').ilike('patient_name', `%${nameMatch}%`)
-                        : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
-                    phoneMatch
-                        ? supabase.from('initial_assessment').select('*').eq('phone', phoneMatch)
-                        : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
-                ]);
+                const byId = bData.id
+                    ? await supabase.from('initial_assessment').select('*').eq('beneficiary_id', bData.id)
+                    : { data: [] as InitialAssessment[], error: null };
                 if (byId.error) throw byId.error;
-                if (byName.error) throw byName.error;
-                if (byPhone.error) throw byPhone.error;
 
-                // A shared household phone number is common (spouses, parent + adult
-                // child) — matching on phone alone can pull in a family member's
-                // assessment instead of this beneficiary's own. Since it's the least
-                // precise of the three signals, require its gender to agree with this
-                // beneficiary's before trusting it (byId/byName need no such check —
-                // an exact ID link or name substring is already specific enough).
-                const genderMatchedByPhone = (byPhone.data || []).filter((i: InitialAssessment) =>
-                    !bData.gender || !i.gender || i.gender === bData.gender
-                );
+                let initials: InitialAssessment[] = [...(byId.data || [])];
 
-                const seen = new Set<string>();
-                const initials = [...(byId.data || []), ...(byName.data || []), ...genderMatchedByPhone]
-                    .filter((i: InitialAssessment) => (seen.has(i.patient_id) ? false : (seen.add(i.patient_id), true)))
-                    .sort((a: InitialAssessment, b: InitialAssessment) => b.assessment_date.localeCompare(a.assessment_date));
+                if (initials.length === 0 && (nameMatch || phoneMatch)) {
+                    const [byName, byPhone] = await Promise.all([
+                        nameMatch
+                            ? supabase.from('initial_assessment').select('*').ilike('patient_name', `%${nameMatch}%`)
+                            : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
+                        phoneMatch
+                            ? supabase.from('initial_assessment').select('*').eq('phone', phoneMatch)
+                            : Promise.resolve({ data: [] as InitialAssessment[], error: null }),
+                    ]);
+                    if (byName.error) throw byName.error;
+                    if (byPhone.error) throw byPhone.error;
+
+                    // A shared household phone number is common (spouses, parent + adult
+                    // child) — matching on phone alone can pull in a family member's
+                    // assessment instead of this beneficiary's own. Since it's the least
+                    // precise of the two signals, require its gender to agree with this
+                    // beneficiary's before trusting it (byName needs no such check — a
+                    // name substring is already specific enough).
+                    const genderMatchedByPhone = (byPhone.data || []).filter((i: InitialAssessment) =>
+                        !bData.gender || !i.gender || i.gender === bData.gender
+                    );
+
+                    const seen = new Set<string>();
+                    initials = [...(byName.data || []), ...genderMatchedByPhone]
+                        .filter((i: InitialAssessment) => (seen.has(i.patient_id) ? false : (seen.add(i.patient_id), true)));
+                }
+
+                initials = initials.sort((a: InitialAssessment, b: InitialAssessment) => b.assessment_date.localeCompare(a.assessment_date));
 
                 if (initials.length > 0) {
                     const patientIds = (initials as InitialAssessment[]).map((i) => i.patient_id);
