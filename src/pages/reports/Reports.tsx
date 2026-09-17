@@ -18,15 +18,35 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { getOutcomes, summarize } from '@/services/outcomeEvaluationService';
+import { fetchProgramReport } from '@/services/programReportService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
-import { getAllScales, getConditions, getScalesByCondition } from '@/config/outcomeScales';
+import { getAllScales, getScalesByCondition } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
+import { DROPDOWNS, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
+import { isDisabilityCondition } from '@/utils/assessmentLogic';
+
+const FIM_CATEGORIES = ['Locomotion', 'Mobility'] as const;
+type FimCategory = typeof FIM_CATEGORIES[number];
+const FIM_LOCOMOTION_KEYS: string[] = FIM_LOCOMOTION_ITEMS.map(i => i.key);
+const FIM_MOBILITY_KEYS: string[] = FIM_MOBILITY_ITEMS.map(i => i.key);
+
+function formatMonthLabel(monthKey: string): string {
+    const [year, month] = monthKey.split('-');
+    return new Date(parseInt(year, 10), parseInt(month, 10) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+function formatPct(v: number | null): string {
+    return v === null ? '—' : `${v}%`;
+}
 
 type CardFilter = OutcomeStatus | 'endline_completed' | null;
 
 const ALL_SCALES = getAllScales();
-const CONDITIONS = getConditions();
+// Every selectable Primary Condition value, including individual disability
+// sub-types (Cerebral Palsy, Down Syndrome, etc.) — matches the Primary Condition
+// dropdown used when entering an Initial Assessment, not just the broad outcome buckets.
+const CONDITIONS = DROPDOWNS.Condition;
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
     improved: { label: 'Improved', color: 'text-green-700', bg: 'bg-green-100', border: 'border-green-200' },
@@ -58,20 +78,39 @@ export function ReportsPage() {
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [cardFilter, setCardFilter] = useState<CardFilter>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [fimCategory, setFimCategory] = useState<FimCategory>('Locomotion');
 
-    const conditionScales = getScalesByCondition(selectedCondition);
+    // Individual disability sub-types (Cerebral Palsy, Down Syndrome, etc.) share the
+    // same 'Disability' outcome scales (FIM measures) as the broad 'Disability' condition.
+    const isDisability = isDisabilityCondition(selectedCondition);
+    const scaleCondition = isDisability ? 'Disability' : selectedCondition;
+    const conditionScales = isDisability
+        ? getScalesByCondition('Disability').filter(s =>
+            (fimCategory === 'Locomotion' ? FIM_LOCOMOTION_KEYS : FIM_MOBILITY_KEYS).includes(s.id))
+        : getScalesByCondition(scaleCondition);
     const activeScale: ScaleConfig | undefined = conditionScales.find(s => s.id === scaleId) || conditionScales[0];
+    const disabilityTypeFilter = isDisability && selectedCondition !== 'Disability'
+        ? selectedCondition
+        : undefined;
 
     useEffect(() => {
-        const scales = getScalesByCondition(selectedCondition);
-        if (scales.length > 0 && !scales.find(s => s.id === scaleId)) {
-            setScaleId(scales[0].id);
+        if (conditionScales.length > 0 && !conditionScales.find(s => s.id === scaleId)) {
+            setScaleId(conditionScales[0].id);
         }
-    }, [selectedCondition, scaleId]);
+        // conditionScales is recomputed from scaleCondition/fimCategory each render — depend on
+        // those directly rather than the derived array so this doesn't loop on identity changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scaleCondition, fimCategory, scaleId]);
 
     const fetchReport = useCallback(async () => {
         const effectiveId = activeScale?.id;
-        if (!effectiveId) return;
+        if (!effectiveId) {
+            setRows([]);
+            setSummary(null);
+            setError(null);
+            return;
+        }
         setIsLoading(true);
         setError(null);
         try {
@@ -79,6 +118,7 @@ export function ReportsPage() {
                 scaleId: effectiveId,
                 fromDate: fromDate || undefined,
                 toDate: toDate || undefined,
+                disabilityType: disabilityTypeFilter,
             };
             const data = await getOutcomes(filters);
             setRows(data);
@@ -90,7 +130,7 @@ export function ReportsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [activeScale?.id, fromDate, toDate]);
+    }, [activeScale?.id, fromDate, toDate, disabilityTypeFilter]);
 
     useEffect(() => {
         fetchReport();
@@ -112,6 +152,8 @@ export function ReportsPage() {
     const pct = (n: number) => evaluableCount > 0 ? `${((n / evaluableCount) * 100).toFixed(1)}%` : '—';
 
     const handleExport = async () => {
+        setIsExporting(true);
+        try {
         const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
         const scaleName = activeScale?.label || scaleId;
@@ -122,6 +164,10 @@ export function ReportsPage() {
             { header: 'Value', key: 'value', width: 30 },
         ];
         summarySheet.addRow({ field: 'Report', value: 'Outcome Evaluation Report' });
+        summarySheet.addRow({ field: 'Condition', value: selectedCondition });
+        if (isDisability) {
+            summarySheet.addRow({ field: 'FIM Category', value: fimCategory });
+        }
         summarySheet.addRow({ field: 'Scale', value: scaleName });
         summarySheet.addRow({ field: 'Date Range', value: `${fromDate || 'All'} to ${toDate || 'All'}` });
         summarySheet.addRow({ field: 'Exported On', value: new Date().toISOString().split('T')[0] });
@@ -164,6 +210,67 @@ export function ReportsPage() {
             });
         });
 
+        // ── One consolidated program-wide sheet (spans every condition, not just the
+        // filter above) instead of a separate tab per section, to keep the tab count down. ──
+        const program = await fetchProgramReport({ fromDate: fromDate || undefined, toDate: toDate || undefined });
+
+        const programSheet = workbook.addWorksheet('Program Report');
+        programSheet.columns = [{ width: 34 }, { width: 20 }, { width: 20 }, { width: 18 }, { width: 18 }, { width: 40 }];
+
+        type CellValue = string | number;
+        const addSection = (title: string, headers: string[], dataRows: CellValue[][]) => {
+            const titleRow = programSheet.addRow([title]);
+            titleRow.font = { bold: true, size: 13 };
+            if (headers.length > 0) {
+                const headerRow = programSheet.addRow(headers);
+                headerRow.font = { bold: true };
+                headerRow.eachCell(cell => {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+                });
+            }
+            dataRows.forEach(r => programSheet.addRow(r));
+            programSheet.addRow([]);
+        };
+
+        const es = program.executiveSummary;
+        addSection('1. Executive Summary', ['Metric', 'Value', 'Percentage'], [
+            ['Total Beneficiaries Assessed', es.totalAssessed, ''],
+            ['Baseline Completed', es.baselineCompleted, formatPct(es.baselineCompletedPct)],
+            ['Post-Assessment Completed', es.postAssessmentCompleted, formatPct(es.postAssessmentCompletedPct)],
+            ['Improved Outcomes', es.improved, formatPct(program.outcomeAnalysis[0].pct)],
+            ['No Change', es.same, formatPct(program.outcomeAnalysis[1].pct)],
+            ['Deteriorated', es.deteriorated, formatPct(program.outcomeAnalysis[2].pct)],
+        ]);
+
+        addSection('2. Overall Outcome Analysis', ['Outcome', 'Count', 'Percentage'], [
+            ...program.outcomeAnalysis.map(r => [r.outcome, r.count, formatPct(r.pct)]),
+            ['', '', ''],
+            [`Donor-facing framing: "${program.outcomeAnalysis[0].pct}% of beneficiaries demonstrated measurable improvement following intervention."`, '', ''],
+        ]);
+
+        addSection('3. Outcome by Primary Condition', ['Condition', 'Improved', 'Same', 'Worse', 'Evaluable Count', 'Note'],
+            program.outcomeByCondition.map(r => [r.condition, formatPct(r.improvedPct), formatPct(r.samePct), formatPct(r.worsePct), r.evaluableCount, r.note || '']));
+
+        addSection('4. Improvement by Outcome Measure', ['Condition', 'Category', 'Measure', 'Improved %', 'Evaluable Count'],
+            program.improvementByMeasure.map(r => [r.condition, r.category || '', r.measure, formatPct(r.improvedPct), r.evaluableCount]));
+
+        addSection('5. Pre vs Post Comparison (VAS)', ['Pain Level', 'Pre', 'Post'],
+            program.vasBands.map(r => [r.band, r.pre, r.post]));
+
+        addSection('6. District-wise Performance', ['District', 'Improved %', 'Evaluable Count'],
+            program.districtPerformance.map(r => [r.district, formatPct(r.improvedPct), r.evaluableCount]));
+
+        addSection('7. Monthly Trend', ['Month', 'Improvement %', 'Evaluable Count'],
+            program.monthlyTrend.map(r => [formatMonthLabel(r.month), formatPct(r.improvedPct), r.evaluableCount]));
+
+        addSection('8. Assessment Completion', ['Stage', 'Count', 'Percentage'],
+            program.assessmentCompletion.map(r => [r.stage, r.count, formatPct(r.pct)]));
+
+        addSection('9. Disability Profile', ['Category', 'Count', 'Percentage'],
+            program.disabilityProfile.map(r => [r.category, r.count, formatPct(r.pct)]));
+
+        addSection('Notes & Methodology', [], program.notes.map(n => [n]));
+
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const url = window.URL.createObjectURL(blob);
@@ -173,6 +280,9 @@ export function ReportsPage() {
         anchor.download = `Outcome_${scaleId}${rangeLabel}_${new Date().toISOString().split('T')[0]}.xlsx`;
         anchor.click();
         window.URL.revokeObjectURL(url);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -193,10 +303,11 @@ export function ReportsPage() {
                     </Button>
                     <Button
                         onClick={handleExport}
-                        disabled={rows.length === 0 || isLoading}
+                        disabled={rows.length === 0 || isLoading || isExporting}
                         className="flex items-center gap-2 shadow-lg shadow-primary/20"
                     >
-                        <Download size={18} /> <span className="hidden sm:inline">Export Excel</span>
+                        {isExporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                        <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export Excel'}</span>
                     </Button>
                 </div>
             </div>
@@ -215,6 +326,15 @@ export function ReportsPage() {
                         onChange={(e) => setSelectedCondition(e.target.value)}
                         options={CONDITIONS.map(c => ({ value: c, label: c }))}
                     />
+                    {isDisability && (
+                        <Select
+                            label="FIM Category"
+                            name="fimCategory"
+                            value={fimCategory}
+                            onChange={(e) => setFimCategory(e.target.value as FimCategory)}
+                            options={FIM_CATEGORIES.map(c => ({ value: c, label: c }))}
+                        />
+                    )}
                     <Select
                         label="Assessment Scale"
                         name="scale"
@@ -222,7 +342,7 @@ export function ReportsPage() {
                         onChange={(e) => setScaleId(e.target.value)}
                         options={conditionScales.map(s => ({ value: s.id, label: s.label }))}
                     />
-                    <div />
+                    {!isDisability && <div />}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
                     <Input
@@ -360,7 +480,9 @@ export function ReportsPage() {
                             <BarChart3 size={32} className="text-gray-200" />
                         </div>
                         <p className="text-gray-400 font-medium">
-                            {rows.length === 0
+                            {conditionScales.length === 0
+                                ? 'No outcome scale is configured for this condition yet.'
+                                : rows.length === 0
                                 ? 'No assessment data found for the selected scale and date range.'
                                 : 'No records match your search.'}
                         </p>
@@ -437,8 +559,11 @@ export function ReportsPage() {
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Excel Export</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
-                        Exports include a Summary sheet (active filters + counts) and a Consolidated sheet (all visible
-                        rows). The filename includes the scale and date range for audit traceability.
+                        Exports include 3 tabs: Summary and Consolidated for the selected scale/date range, plus one
+                        Program Report tab covering every condition — Executive Summary, Overall Outcome Analysis,
+                        Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District Performance,
+                        Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology —
+                        stacked as labeled sections on one sheet.
                     </p>
                 </Card>
             </div>

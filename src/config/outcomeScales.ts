@@ -185,6 +185,19 @@ export const OUTCOME_SCALES: Record<string, ScaleConfig> = {
     },
 };
 
+// One decisive measure per condition, used wherever a beneficiary needs a single
+// Improved/Same/Deteriorated status (Executive Summary, Outcome by Condition,
+// District/Monthly rollups) instead of one status per individual measure.
+// 'Post Operative Condition' has no configured scale at all yet, so it has no entry here.
+export const PRIMARY_SCALE_BY_CONDITION: Record<string, string> = {
+    'Neuro Muscular Painful Condition': 'vas',
+    'Neurological Condition': 'balance',
+    'Pulmonary Condition': 'dyspnea',
+    'Disability': 'fim_walking_wheelchair',
+    'Amputation': 'amp',
+    'Early Intervention Assessment': 'ei_outcome',
+};
+
 export const ALL_SCALE_IDS = Object.keys(OUTCOME_SCALES);
 
 export function getScale(id: string): ScaleConfig | undefined {

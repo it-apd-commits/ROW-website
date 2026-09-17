@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getScale } from '@/config/outcomeScales';
+import type { ScaleConfig } from '@/config/outcomeScales';
 import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
 
@@ -56,7 +57,7 @@ const chunk = <T>(arr: T[], size: number): T[][] => {
     return out;
 };
 
-function classifyNumeric(
+export function classifyNumeric(
     baseline: number | null,
     current: number | null,
     direction: 'higher_better' | 'lower_better'
@@ -68,7 +69,7 @@ function classifyNumeric(
     return delta < 0 ? 'improved' : 'declined';
 }
 
-function classifyCategorical(
+export function classifyCategorical(
     baseline: string | null,
     current: string | null,
     ordinal: string[],
@@ -83,7 +84,7 @@ function classifyCategorical(
     return cIdx < bIdx ? 'improved' : 'declined';
 }
 
-function classifyClinicianEntered(
+export function classifyClinicianEntered(
     value: string | null,
     bucketMap: Record<string, string>
 ): OutcomeStatus {
@@ -93,7 +94,7 @@ function classifyClinicianEntered(
     return mapped as OutcomeStatus;
 }
 
-function toNumeric(val: unknown): number | null {
+export function toNumeric(val: unknown): number | null {
     if (val === null || val === undefined || val === '') return null;
     if (typeof val === 'number') return val;
     if (typeof val === 'string') {
@@ -101,6 +102,28 @@ function toNumeric(val: unknown): number | null {
         if (match) return parseInt(match[1], 10);
     }
     return null;
+}
+
+export function classifyByScale(
+    scale: ScaleConfig,
+    baselineValue: unknown,
+    currentValue: unknown
+): OutcomeStatus {
+    if (scale.family === 'clinician_entered' && scale.bucketMap) {
+        return classifyClinicianEntered(currentValue as string | null, scale.bucketMap);
+    }
+    if (scale.family === 'numeric') {
+        return classifyNumeric(toNumeric(baselineValue), toNumeric(currentValue), scale.direction);
+    }
+    if (scale.family === 'categorical' && scale.ordinal) {
+        return classifyCategorical(
+            baselineValue as string | null,
+            currentValue as string | null,
+            scale.ordinal,
+            scale.direction
+        );
+    }
+    return 'not_evaluable';
 }
 
 export function summarize(rows: OutcomeRow[]): OutcomeSummary {
@@ -225,26 +248,7 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
 
         const currentValue = followUp[scale.followUpField] ?? null;
 
-        let status: OutcomeStatus;
-
-        if (scale.family === 'clinician_entered' && scale.bucketMap) {
-            status = classifyClinicianEntered(currentValue as string | null, scale.bucketMap);
-        } else if (scale.family === 'numeric') {
-            status = classifyNumeric(
-                toNumeric(baselineValue),
-                toNumeric(currentValue),
-                scale.direction
-            );
-        } else if (scale.family === 'categorical' && scale.ordinal) {
-            status = classifyCategorical(
-                baselineValue as string | null,
-                currentValue as string | null,
-                scale.ordinal,
-                scale.direction
-            );
-        } else {
-            status = 'not_evaluable';
-        }
+        const status = classifyByScale(scale, baselineValue, currentValue);
 
         rows.push({
             patient_id: patientId,
