@@ -40,6 +40,12 @@ function formatPct(v: number | null): string {
     return v === null ? '—' : `${v}%`;
 }
 
+// A category with 1+ records can still round to 0.0% against a large total
+// (e.g. 1 of 6,303) — show "<0.1%" instead of the misleading "0%" in that case.
+function formatCountPct(count: number, v: number): string {
+    return count > 0 && v === 0 ? '<0.1%' : formatPct(v);
+}
+
 type CardFilter = OutcomeStatus | 'endline_completed' | null;
 
 const ALL_SCALES = getAllScales();
@@ -156,33 +162,32 @@ export function ReportsPage() {
         try {
         const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
-        const scaleName = activeScale?.label || scaleId;
+
+        // The export is intentionally unfiltered: it always covers every
+        // beneficiary, every condition, and all-time data, regardless of the
+        // Condition/Scale/Date Range/Search selected on screen — those only
+        // control what's shown in the on-screen table above.
+        const program = await fetchProgramReport();
+        const es = program.executiveSummary;
+        const evaluableAll = es.improved + es.same + es.deteriorated;
+        const pctAll = (n: number) => evaluableAll > 0 ? `${((n / evaluableAll) * 100).toFixed(1)}%` : '—';
 
         const summarySheet = workbook.addWorksheet('Summary');
         summarySheet.columns = [
-            { header: 'Field', key: 'field', width: 25 },
+            { header: 'Field', key: 'field', width: 30 },
             { header: 'Value', key: 'value', width: 30 },
         ];
         summarySheet.addRow({ field: 'Report', value: 'Outcome Evaluation Report' });
-        summarySheet.addRow({ field: 'Condition', value: selectedCondition });
-        if (isDisability) {
-            summarySheet.addRow({ field: 'FIM Category', value: fimCategory });
-        }
-        summarySheet.addRow({ field: 'Scale', value: scaleName });
-        summarySheet.addRow({ field: 'Date Range', value: `${fromDate || 'All'} to ${toDate || 'All'}` });
+        summarySheet.addRow({ field: 'Coverage', value: 'All conditions, all scales, all-time' });
         summarySheet.addRow({ field: 'Exported On', value: new Date().toISOString().split('T')[0] });
         summarySheet.addRow({ field: '', value: '' });
-        if (summary) {
-            summarySheet.addRow({ field: 'Total Patients', value: summary.total });
-            summarySheet.addRow({ field: 'Evaluable', value: evaluableCount });
-            summarySheet.addRow({ field: 'Improved', value: `${summary.improved} (${pct(summary.improved)})` });
-            summarySheet.addRow({ field: 'Declined', value: `${summary.declined} (${pct(summary.declined)})` });
-            summarySheet.addRow({ field: 'Same', value: `${summary.same} (${pct(summary.same)})` });
-            summarySheet.addRow({ field: 'Needs Referral', value: summary.needs_referral });
-            summarySheet.addRow({ field: 'Baseline Only (Endline Pending)', value: summary.baseline_only });
-            summarySheet.addRow({ field: 'Endline Completed', value: rows.filter(r => r.current_date != null).length });
-            summarySheet.addRow({ field: 'Not Evaluable', value: summary.not_evaluable });
-        }
+        summarySheet.addRow({ field: 'Total Beneficiaries Assessed', value: es.totalAssessed });
+        summarySheet.addRow({ field: 'Baseline Completed', value: `${es.baselineCompleted} (${formatPct(es.baselineCompletedPct)})` });
+        summarySheet.addRow({ field: 'Post-Assessment Completed', value: `${es.postAssessmentCompleted} (${formatPct(es.postAssessmentCompletedPct)})` });
+        summarySheet.addRow({ field: 'Evaluable (Improved + Same + Deteriorated)', value: evaluableAll });
+        summarySheet.addRow({ field: 'Improved', value: `${es.improved} (${pctAll(es.improved)})` });
+        summarySheet.addRow({ field: 'Same', value: `${es.same} (${pctAll(es.same)})` });
+        summarySheet.addRow({ field: 'Deteriorated', value: `${es.deteriorated} (${pctAll(es.deteriorated)})` });
 
         const dataSheet = workbook.addWorksheet('Consolidated');
         dataSheet.columns = [
@@ -194,46 +199,105 @@ export function ReportsPage() {
             { header: 'Endline Value', key: 'current_value', width: 18 },
             { header: 'Endline Date', key: 'current_date', width: 16 },
             { header: 'Status', key: 'status', width: 18 },
+            { header: 'Follow-up Number', key: 'follow_up_count', width: 18 },
         ];
 
-        const exportRows = searchTerm ? filteredRows : rows;
-        exportRows.forEach(r => {
+        program.allOutcomeRows.forEach(r => {
             dataSheet.addRow({
                 patient_id: r.patient_id,
                 name: r.name,
-                scale: scaleName,
+                scale: r.scale,
                 baseline_value: formatValue(r.baseline_value),
                 baseline_date: formatDate(r.baseline_date),
                 current_value: formatValue(r.current_value),
                 current_date: formatDate(r.current_date),
                 status: STATUS_CONFIG[r.status]?.label || r.status,
+                follow_up_count: r.follow_up_count,
             });
         });
 
-        // ── One consolidated program-wide sheet (spans every condition, not just the
-        // filter above) instead of a separate tab per section, to keep the tab count down. ──
-        const program = await fetchProgramReport({ fromDate: fromDate || undefined, toDate: toDate || undefined });
-
+        // ── One consolidated program-wide sheet (spans every condition) instead of
+        // a separate tab per section, to keep the tab count down. ──
         const programSheet = workbook.addWorksheet('Program Report');
-        programSheet.columns = [{ width: 34 }, { width: 20 }, { width: 20 }, { width: 18 }, { width: 18 }, { width: 40 }];
+        const SECTION_COLS = 7;
+        programSheet.columns = [{ width: 34 }, { width: 20 }, { width: 20 }, { width: 18 }, { width: 18 }, { width: 16 }, { width: 40 }];
+
+        const TEAL = 'FF2E6E62';
+        const BAND = 'FFEAF3F1';
+        const BORDER_ARGB = 'FFD9D9D9';
+        const thinBorder = { style: 'thin' as const, color: { argb: BORDER_ARGB } };
+        const cellBorder = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+
+        // Banner
+        const bannerTitle = programSheet.addRow(['Program-Wide Outcome Report']);
+        bannerTitle.font = { bold: true, size: 16, color: { argb: 'FF1F2937' } };
+        programSheet.mergeCells(bannerTitle.number, 1, bannerTitle.number, SECTION_COLS);
+        const bannerSub = programSheet.addRow([
+            `Covers every condition and beneficiary in the system, all-time, independent of the filters on the Reports screen · Generated ${new Date().toISOString().split('T')[0]}`,
+        ]);
+        bannerSub.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } };
+        programSheet.mergeCells(bannerSub.number, 1, bannerSub.number, SECTION_COLS);
+        programSheet.addRow([]);
 
         type CellValue = string | number;
-        const addSection = (title: string, headers: string[], dataRows: CellValue[][]) => {
+        const addSection = (title: string, description: string, headers: string[], dataRows: CellValue[][]) => {
+            const tableCols = Math.max(headers.length, dataRows[0]?.length || 1, 1);
+
             const titleRow = programSheet.addRow([title]);
-            titleRow.font = { bold: true, size: 13 };
+            titleRow.font = { bold: true, size: 13, color: { argb: TEAL } };
+            titleRow.height = 20;
+            programSheet.mergeCells(titleRow.number, 1, titleRow.number, SECTION_COLS);
+
+            if (description) {
+                const descRow = programSheet.addRow([description]);
+                descRow.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } };
+                descRow.alignment = { wrapText: true, vertical: 'top' };
+                descRow.height = 28;
+                programSheet.mergeCells(descRow.number, 1, descRow.number, SECTION_COLS);
+            }
+
             if (headers.length > 0) {
                 const headerRow = programSheet.addRow(headers);
-                headerRow.font = { bold: true };
-                headerRow.eachCell(cell => {
-                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
-                });
+                headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                for (let col = 1; col <= tableCols; col++) {
+                    const cell = headerRow.getCell(col);
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TEAL } };
+                    cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical: 'middle' };
+                    cell.border = cellBorder;
+                }
             }
-            dataRows.forEach(r => programSheet.addRow(r));
+
+            dataRows.forEach((r, i) => {
+                const row = programSheet.addRow(r);
+                if (headers.length === 0) {
+                    // Free-text rows (e.g. Notes & Methodology) — wrap and merge across the
+                    // full section width instead of treating this as a data table.
+                    row.font = { size: 10, color: { argb: 'FF374151' } };
+                    row.alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
+                    row.height = Math.max(16, Math.ceil(String(r[0] ?? '').length / 140) * 16);
+                    programSheet.mergeCells(row.number, 1, row.number, SECTION_COLS);
+                    return;
+                }
+                const banded = i % 2 === 1;
+                for (let col = 1; col <= tableCols; col++) {
+                    const cell = row.getCell(col);
+                    if (banded) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+                    cell.border = cellBorder;
+                    const header = headers[col - 1];
+                    if (col === 1 || header === 'Note') {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: header === 'Note' };
+                    } else {
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    }
+                }
+            });
             programSheet.addRow([]);
         };
 
-        const es = program.executiveSummary;
-        addSection('1. Executive Summary', ['Metric', 'Value', 'Percentage'], [
+        addSection(
+            '1. Executive Summary',
+            'High-level snapshot of program reach: how many beneficiaries have been assessed, how many have completed a baseline and post-assessment, and their overall outcome split.',
+            ['Metric', 'Value', 'Percentage'], [
             ['Total Beneficiaries Assessed', es.totalAssessed, ''],
             ['Baseline Completed', es.baselineCompleted, formatPct(es.baselineCompletedPct)],
             ['Post-Assessment Completed', es.postAssessmentCompleted, formatPct(es.postAssessmentCompletedPct)],
@@ -242,42 +306,86 @@ export function ReportsPage() {
             ['Deteriorated', es.deteriorated, formatPct(program.outcomeAnalysis[2].pct)],
         ]);
 
-        addSection('2. Overall Outcome Analysis', ['Outcome', 'Count', 'Percentage'], [
+        addSection(
+            '2. Overall Outcome Analysis',
+            'Share of evaluable beneficiaries (those with both a baseline and a follow-up) who improved, stayed the same, or deteriorated, using each condition\'s primary outcome measure.',
+            ['Outcome', 'Count', 'Percentage'], [
             ...program.outcomeAnalysis.map(r => [r.outcome, r.count, formatPct(r.pct)]),
             ['', '', ''],
             [`Donor-facing framing: "${program.outcomeAnalysis[0].pct}% of beneficiaries demonstrated measurable improvement following intervention."`, '', ''],
         ]);
 
-        addSection('3. Outcome by Primary Condition', ['Condition', 'Improved', 'Same', 'Worse', 'Evaluable Count', 'Note'],
-            program.outcomeByCondition.map(r => [r.condition, formatPct(r.improvedPct), formatPct(r.samePct), formatPct(r.worsePct), r.evaluableCount, r.note || '']));
+        addSection(
+            '3. Outcome by Primary Condition',
+            'Improvement, stability, and decline rates broken down by primary condition, using each condition\'s primary outcome measure. "Baseline Only" beneficiaries have no follow-up yet and are excluded from the percentages.',
+            ['Condition', 'Improved', 'Same', 'Worse', 'Evaluable Count', 'Baseline Only', 'Note'],
+            program.outcomeByCondition.map(r => [r.condition, formatPct(r.improvedPct), formatPct(r.samePct), formatPct(r.worsePct), r.evaluableCount, r.baselineOnlyCount, r.note || '']));
 
-        addSection('4. Improvement by Outcome Measure', ['Condition', 'Category', 'Measure', 'Improved %', 'Evaluable Count'],
-            program.improvementByMeasure.map(r => [r.condition, r.category || '', r.measure, formatPct(r.improvedPct), r.evaluableCount]));
+        addSection(
+            '4. Improvement by Outcome Measure',
+            'Improvement rate for every individual outcome measure captured across all conditions, including the FIM Locomotion and Mobility sub-scales used for Disability.',
+            ['Condition', 'Category', 'Measure', 'Improved %', 'Evaluable Count', 'Baseline Only'],
+            program.improvementByMeasure.map(r => [r.condition, r.category || '', r.measure, formatPct(r.improvedPct), r.evaluableCount, r.baselineOnlyCount]));
 
-        addSection('5. Pre vs Post Comparison (VAS)', ['Pain Level', 'Pre', 'Post'],
+        addSection(
+            '5. Pre vs Post Comparison (VAS)',
+            'Number of beneficiaries in each standard VAS pain band before and after intervention. Bands: No Pain = 0, Mild = 1-3, Moderate = 4-6, Severe = 7-10.',
+            ['Pain Level', 'Pre', 'Post'],
             program.vasBands.map(r => [r.band, r.pre, r.post]));
 
-        addSection('6. District-wise Performance', ['District', 'Improved %', 'Evaluable Count'],
+        addSection(
+            '6. District-wise Performance',
+            'Improvement rate and evaluable caseload by beneficiary district, sorted by caseload size.',
+            ['District', 'Improved %', 'Evaluable Count'],
             program.districtPerformance.map(r => [r.district, formatPct(r.improvedPct), r.evaluableCount]));
 
-        addSection('7. Monthly Trend', ['Month', 'Improvement %', 'Evaluable Count'],
+        addSection(
+            '7. Monthly Trend',
+            'Improvement rate by month of follow-up assessment, showing how outcomes are trending over time.',
+            ['Month', 'Improvement %', 'Evaluable Count'],
             program.monthlyTrend.map(r => [formatMonthLabel(r.month), formatPct(r.improvedPct), r.evaluableCount]));
 
-        addSection('8. Assessment Completion', ['Stage', 'Count', 'Percentage'],
-            program.assessmentCompletion.map(r => [r.stage, r.count, formatPct(r.pct)]));
+        addSection(
+            '8. Assessment Completion',
+            'Beneficiary funnel from registration through baseline, intervention, and post-assessment completion, as a percentage of total registrations.',
+            ['Stage', 'Count', 'Percentage'],
+            program.assessmentCompletion.map(r => [r.stage, r.count, formatCountPct(r.count, r.pct)]));
 
-        addSection('9. Disability Profile', ['Category', 'Count', 'Percentage'],
-            program.disabilityProfile.map(r => [r.category, r.count, formatPct(r.pct)]));
+        addSection(
+            '9. Disability Profile (as per RPWD Act)',
+            'Distribution of the assessed beneficiary caseload by disability category, per the Rights of Persons with Disabilities (RPWD) Act classification.',
+            ['Category', 'Count', 'Percentage'],
+            program.disabilityProfile.map(r => [r.category, r.count, formatCountPct(r.count, r.pct)]));
 
-        addSection('Notes & Methodology', [], program.notes.map(n => [n]));
+        addSection(
+            '10. Post-Op: Weight Bearing Status (Baseline Snapshot)',
+            'Current weight-bearing status of post-operative beneficiaries. Captured once at initial assessment and not re-asked at follow-up, so this is a snapshot, not an improvement trend.',
+            ['Status', 'Count', 'Percentage'],
+            program.weightBearingSnapshot.map(r => [r.category, r.count, formatCountPct(r.count, r.pct)]));
+
+        addSection(
+            '11. Post-Op: Functional Mobility Level (Baseline Snapshot)',
+            'Current functional mobility level of post-operative beneficiaries. Captured once at initial assessment and not re-asked at follow-up, so this is a snapshot, not an improvement trend.',
+            ['Level', 'Count', 'Percentage'],
+            program.functionalMobilitySnapshot.map(r => [r.category, r.count, formatCountPct(r.count, r.pct)]));
+
+        addSection(
+            '12. Amputation: Prosthesis Status (Baseline Snapshot)',
+            'Current prosthesis status of amputation beneficiaries. Captured once at initial assessment and not re-asked at follow-up, so this is a snapshot, not an improvement trend.',
+            ['Status', 'Count', 'Percentage'],
+            program.prosthesisStatusSnapshot.map(r => [r.category, r.count, formatCountPct(r.count, r.pct)]));
+
+        addSection(
+            'Notes & Methodology',
+            'How to read the tables above: definitions, exclusions, and caveats behind each section.',
+            [], program.notes.map(n => [n]));
 
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const url = window.URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        const rangeLabel = fromDate || toDate ? `_${fromDate || 'start'}_to_${toDate || 'end'}` : '';
-        anchor.download = `Outcome_${scaleId}${rangeLabel}_${new Date().toISOString().split('T')[0]}.xlsx`;
+        anchor.download = `ROW_Outcome_Report_Full_${new Date().toISOString().split('T')[0]}.xlsx`;
         anchor.click();
         window.URL.revokeObjectURL(url);
         } finally {
@@ -559,11 +667,13 @@ export function ReportsPage() {
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Excel Export</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
-                        Exports include 3 tabs: Summary and Consolidated for the selected scale/date range, plus one
-                        Program Report tab covering every condition — Executive Summary, Overall Outcome Analysis,
-                        Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District Performance,
-                        Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology —
-                        stacked as labeled sections on one sheet.
+                        The export always covers every condition, every scale, and all-time data — it ignores the
+                        Condition/Scale/Date Range/Search selected above, which only control the table on this screen.
+                        It includes 3 tabs: Summary (program-wide totals), Consolidated (every beneficiary against
+                        every outcome measure their condition uses), and Program Report — Executive Summary, Overall
+                        Outcome Analysis, Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District
+                        Performance, Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology —
+                        stacked as labeled, color-coded sections with a short description under each heading.
                     </p>
                 </Card>
             </div>

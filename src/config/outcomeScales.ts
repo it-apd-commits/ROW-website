@@ -47,6 +47,16 @@ export const OUTCOME_SCALES: Record<string, ScaleConfig> = {
     },
 
     // ── Neurological Condition ──
+    neuro_strength: {
+        id: 'neuro_strength',
+        label: 'Muscle Strength',
+        condition: 'Neurological Condition',
+        family: 'categorical',
+        direction: 'higher_better',
+        baselineField: 'neuro_strength',
+        followUpField: 'neuro_strength',
+        ordinal: ['Severe Weakness (≤2)', 'Moderate Weakness (MMT 3)', 'Mild Weakness (MMT 4)', 'Normal (MMT 5)'],
+    },
     balance: {
         id: 'balance',
         label: 'Balance',

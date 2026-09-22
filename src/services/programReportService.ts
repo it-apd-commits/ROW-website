@@ -9,7 +9,7 @@ import {
 } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
 import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
-import { FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
+import { DROPDOWNS, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
 import type { OutcomeStatus } from '@/types/outcomeEvaluation';
 
 const DISABILITY_CONDITION_VALUES = ['Disability', ...DISABILITY_TYPES];
@@ -32,17 +32,38 @@ const CONDITION_LABELS: Record<string, string> = {
 
 const EVALUABLE: OutcomeStatus[] = ['improved', 'same', 'declined'];
 
-// Cosmetic relabeling only — these are the same disability_type values already stored
-// on beneficiaries, renamed to match commonly used RPWD Act report wording. Any
-// disability_type not listed here is shown under its own real name, not folded into "Other".
+// beneficiaries.disability_type is free text captured at import (see
+// importService.ts — it comes straight from an uncontrolled "DISABILITY TYPE"
+// spreadsheet column, not the app's own dropdown), so the same real category
+// shows up under several spellings/spacings/casings (e.g. "Neuromuscular
+// Painful Condition", "Neuro Muscular Painful Condition", "neuromuscular
+// painful condition"). Keyed by the lower-cased, single-spaced raw value so
+// all of those collapse into one row instead of fragmenting the profile.
+// Any disability_type not listed here is shown under its own real name
+// (title-cased for display), not folded into "Other".
 const DISABILITY_REPORT_LABELS: Record<string, string> = {
-    'Neuromuscular Painful Condition': 'Neuromuscular / Chronic Pain Conditions',
-    'Multiple Disability': 'Multiple Disabilities',
-    'Chronic Neurological Disorder': 'Chronic Neurological Conditions',
-    'Learning Disability': 'Specific Learning Disabilities',
-    'Global Delay Development': 'Global Developmental Delay',
-    'Low Vision': 'Low-vision',
+    'neuromuscular painful condition': 'Neuromuscular / Chronic Pain Conditions',
+    'neuro muscular painful condition': 'Neuromuscular / Chronic Pain Conditions',
+    'multiple disability': 'Multiple Disabilities',
+    'chronic neurological disorder': 'Chronic Neurological Conditions',
+    'learning disability': 'Specific Learning Disabilities',
+    'global delay development': 'Global Developmental Delay',
+    'low vision': 'Low-vision',
 };
+
+// Placeholder values from the same free-text import column that describe a
+// beneficiary as NOT (yet) having a classified disability — not an RPWD Act
+// disability category, so they're excluded from the Disability Profile table
+// and its percentage base entirely, rather than counted as a "category".
+const NON_DISABILITY_VALUES = new Set(['non-disabled', 'general screening']);
+
+function normalizeDisabilityKey(raw: string): string {
+    return raw.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function titleCase(raw: string): string {
+    return raw.replace(/\S+/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
 
 interface InitialRecord {
     patient_id: string;
@@ -74,14 +95,11 @@ interface BeneficiaryRecord {
 interface ScaleOutcomeRow {
     patient_id: string;
     baseline_value: unknown;
+    baseline_date: string | null;
     current_value: unknown;
     current_date: string | null;
     status: OutcomeStatus;
-}
-
-export interface ProgramReportFilters {
-    fromDate?: string;
-    toDate?: string;
+    follow_up_count: number;
 }
 
 export interface ExecutiveSummary {
@@ -107,6 +125,10 @@ export interface ConditionOutcomeRow {
     samePct: number | null;
     worsePct: number | null;
     evaluableCount: number;
+    // Beneficiaries with a baseline recorded but no follow-up yet, so they
+    // can't be classified improved/same/declined — still real data, just not
+    // an evaluable outcome. Shown so "0 evaluable" isn't mistaken for "no data".
+    baselineOnlyCount: number;
     note?: string;
 }
 
@@ -116,6 +138,7 @@ export interface MeasureImprovementRow {
     measure: string;
     improvedPct: number | null;
     evaluableCount: number;
+    baselineOnlyCount: number;
 }
 
 export interface VasBandRow {
@@ -148,6 +171,30 @@ export interface DisabilityProfileRow {
     pct: number;
 }
 
+// Baseline-only snapshot for fields that are captured once at the initial
+// assessment and never re-asked at follow-up — there's no "after" value to
+// compare against, so these show current distribution only, not improvement.
+export interface StatusSnapshotRow {
+    category: string;
+    count: number;
+    pct: number;
+}
+
+// One row per beneficiary per applicable outcome measure, across every
+// condition and all-time — the full, unfiltered detail behind every rollup
+// above. Powers the Consolidated export tab.
+export interface ConsolidatedRow {
+    patient_id: string;
+    name: string;
+    scale: string;
+    baseline_value: string | number | null;
+    baseline_date: string | null;
+    current_value: string | number | null;
+    current_date: string | null;
+    status: OutcomeStatus;
+    follow_up_count: number;
+}
+
 export interface ProgramReport {
     executiveSummary: ExecutiveSummary;
     outcomeAnalysis: OutcomeAnalysisRow[];
@@ -158,6 +205,10 @@ export interface ProgramReport {
     monthlyTrend: MonthlyTrendRow[];
     assessmentCompletion: FunnelRow[];
     disabilityProfile: DisabilityProfileRow[];
+    weightBearingSnapshot: StatusSnapshotRow[];
+    functionalMobilitySnapshot: StatusSnapshotRow[];
+    prosthesisStatusSnapshot: StatusSnapshotRow[];
+    allOutcomeRows: ConsolidatedRow[];
     notes: string[];
 }
 
@@ -174,7 +225,11 @@ function vasBand(value: number): string {
 // program (all conditions, all patients) in a single set of table scans — unlike
 // getOutcomes() in outcomeEvaluationService, which is scoped to one scale/condition
 // at a time and is called from the per-scale Reports export.
-export async function fetchProgramReport(filters: ProgramReportFilters): Promise<ProgramReport> {
+// Always covers every beneficiary, every condition, and all-time data — not
+// scoped to whatever Condition/Scale/Date Range is selected in the Reports UI.
+// That on-screen selection only drives what's shown on screen; this function
+// (and everything it feeds in the Excel export) is intentionally unfiltered.
+export async function fetchProgramReport(): Promise<ProgramReport> {
     const [initials, clinicals, followUps, beneficiaries, serviceEntries] = await Promise.all([
         fetchAllRows<InitialRecord>(() => supabase
             .from('initial_assessment')
@@ -183,12 +238,10 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
             .from('clinical_assessment')
             .select('*')
             .order('created_at', { ascending: true })),
-        fetchAllRows<FollowUpRecord>(() => {
-            let q = supabase.from('follow_up_assessment').select('*').order('visit_date', { ascending: false });
-            if (filters.fromDate) q = q.gte('visit_date', filters.fromDate);
-            if (filters.toDate) q = q.lte('visit_date', filters.toDate);
-            return q;
-        }),
+        fetchAllRows<FollowUpRecord>(() => supabase
+            .from('follow_up_assessment')
+            .select('*')
+            .order('visit_date', { ascending: false })),
         fetchAllRows<BeneficiaryRecord>(() => supabase.from('beneficiaries').select('id, file_number, district, disability_type')),
         fetchAllRows<{ file_number: string | null }>(() => supabase.from('service_entries').select('file_number')),
     ]);
@@ -204,11 +257,13 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
         if (list) list.push(c); else baselinesByPatient.set(c.patient_id, [c]);
     });
 
-    // Latest follow-up per patient within the date range, regardless of its own
-    // condition field — matches the single-scale export's behavior.
+    // Latest follow-up per patient (all-time), regardless of its own condition
+    // field — matches the single-scale export's behavior.
     const latestFollowUpByPatient = new Map<string, FollowUpRecord>();
+    const followUpCountByPatient = new Map<string, number>();
     followUps.forEach(f => {
         if (!latestFollowUpByPatient.has(f.patient_id)) latestFollowUpByPatient.set(f.patient_id, f);
+        followUpCountByPatient.set(f.patient_id, (followUpCountByPatient.get(f.patient_id) || 0) + 1);
     });
 
     const districtByPatient = new Map<string, string>();
@@ -237,14 +292,16 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
             const baseline = findBaselineFor(patientId, scale);
             if (!baseline) continue;
             const baselineValue = baseline[scale.baselineField] ?? null;
+            const baselineDate = baseline.created_at || null;
+            const followUpCount = followUpCountByPatient.get(patientId) || 0;
             const followUp = latestFollowUpByPatient.get(patientId);
             if (!followUp) {
-                rows.push({ patient_id: patientId, baseline_value: baselineValue, current_value: null, current_date: null, status: 'baseline_only' });
+                rows.push({ patient_id: patientId, baseline_value: baselineValue, baseline_date: baselineDate, current_value: null, current_date: null, status: 'baseline_only', follow_up_count: followUpCount });
                 continue;
             }
             const currentValue = followUp[scale.followUpField] ?? null;
             const status = classifyByScale(scale, baselineValue, currentValue);
-            rows.push({ patient_id: patientId, baseline_value: baselineValue, current_value: currentValue, current_date: followUp.visit_date, status });
+            rows.push({ patient_id: patientId, baseline_value: baselineValue, baseline_date: baselineDate, current_value: currentValue, current_date: followUp.visit_date, status, follow_up_count: followUpCount });
         }
         rowsByScale.set(scale.id, rows);
     }
@@ -289,6 +346,7 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
         const imp = rows.filter(r => r.status === 'improved').length;
         const sm = rows.filter(r => r.status === 'same').length;
         const dec = rows.filter(r => r.status === 'declined').length;
+        const baselineOnly = rows.filter(r => r.status === 'baseline_only').length;
         const total = imp + sm + dec;
         return {
             condition: CONDITION_LABELS[condition] || condition,
@@ -296,14 +354,21 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
             samePct: total > 0 ? pct(sm, total) : null,
             worsePct: total > 0 ? pct(dec, total) : null,
             evaluableCount: total,
+            baselineOnlyCount: baselineOnly,
         };
     });
+    // No outcome scale exists for Post-Op, so it's never part of rowsByScale —
+    // count beneficiaries with a baseline recorded directly off clinical_assessment.
+    const postOpBaselineCount = Array.from(initialMap.keys()).filter(patientId =>
+        baselinesByPatient.get(patientId)?.some(b => b.condition === 'Post Operative Condition')
+    ).length;
     outcomeByCondition.push({
         condition: 'Post Operative',
         improvedPct: null,
         samePct: null,
         worsePct: null,
         evaluableCount: 0,
+        baselineOnlyCount: postOpBaselineCount,
         note: 'No outcome scale configured for this condition yet',
     });
 
@@ -313,12 +378,14 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
             const rows = rowsByScale.get(scale.id) || [];
             const imp = rows.filter(r => r.status === 'improved').length;
             const total = rows.filter(r => EVALUABLE.includes(r.status)).length;
+            const baselineOnly = rows.filter(r => r.status === 'baseline_only').length;
             improvementByMeasure.push({
                 condition: CONDITION_LABELS[condition] || condition,
                 category: FIM_CATEGORY_BY_SCALE[scale.id],
                 measure: scale.label,
                 improvedPct: total > 0 ? pct(imp, total) : null,
                 evaluableCount: total,
+                baselineOnlyCount: baselineOnly,
             });
         }
     }
@@ -374,15 +441,80 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
         { stage: 'Post Assessment Completed', count: postAssessmentCompleted, pct: funnelPct(postAssessmentCompleted) },
     ];
 
+    // Grouped by normalized key so casing/spacing variants of the same real
+    // category merge into one row; the display label is derived once per key
+    // (aliased if known, otherwise title-cased from however it first appears).
+    // Pre-seeded with every category the beneficiary form itself offers (minus
+    // "Non-Disabled", which isn't a disability category) so the table always
+    // lists the full set, with 0 (0%) for any category no one is currently
+    // recorded under, instead of silently omitting the row.
     const disabilityCounts = new Map<string, number>();
+    const disabilityLabelForKey = new Map<string, string>();
+    for (const type of DISABILITY_TYPES) {
+        const key = normalizeDisabilityKey(type);
+        if (NON_DISABILITY_VALUES.has(key)) continue;
+        disabilityCounts.set(key, 0);
+        disabilityLabelForKey.set(key, DISABILITY_REPORT_LABELS[key] || titleCase(type));
+    }
+    let disabilityProfileTotal = 0;
     beneficiaries.forEach(b => {
-        const raw = b.disability_type && b.disability_type.trim() ? b.disability_type.trim() : 'Unspecified';
-        const label = DISABILITY_REPORT_LABELS[raw] || raw;
-        disabilityCounts.set(label, (disabilityCounts.get(label) || 0) + 1);
+        const raw = b.disability_type && b.disability_type.trim() ? b.disability_type.trim() : null;
+        if (!raw) return;
+        const key = normalizeDisabilityKey(raw);
+        if (NON_DISABILITY_VALUES.has(key)) return;
+        disabilityCounts.set(key, (disabilityCounts.get(key) || 0) + 1);
+        if (!disabilityLabelForKey.has(key)) {
+            disabilityLabelForKey.set(key, DISABILITY_REPORT_LABELS[key] || titleCase(raw));
+        }
+        disabilityProfileTotal++;
     });
     const disabilityProfile: DisabilityProfileRow[] = Array.from(disabilityCounts.entries())
-        .map(([category, count]) => ({ category, count, pct: pct(count, registrationCompleted) }))
+        .map(([key, count]) => ({ category: disabilityLabelForKey.get(key) as string, count, pct: pct(count, disabilityProfileTotal) }))
         .sort((a, b) => b.count - a.count);
+
+    // Baseline-only snapshot: these fields are captured once at the initial
+    // assessment and never re-asked at follow-up, so there's no before/after to
+    // compare — just count whatever value is on record today, in clinical order.
+    // A patient with no baseline for the condition, or no value entered, is
+    // simply not counted (never guessed or defaulted).
+    const buildStatusSnapshot = (condition: string, field: string, orderedCategories: string[]): StatusSnapshotRow[] => {
+        const counts = new Map<string, number>(orderedCategories.map(c => [c, 0]));
+        let total = 0;
+        for (const patientId of initialMap.keys()) {
+            const list = baselinesByPatient.get(patientId);
+            const baseline = list?.find(b => b.condition === condition);
+            const value = baseline ? (baseline[field] as string | null) : null;
+            if (!value) continue;
+            if (!counts.has(value)) counts.set(value, 0);
+            counts.set(value, (counts.get(value) || 0) + 1);
+            total++;
+        }
+        return Array.from(counts.entries()).map(([category, count]) => ({ category, count, pct: pct(count, total) }));
+    };
+
+    const weightBearingSnapshot = buildStatusSnapshot('Post Operative Condition', 'weight_bearing_status', DROPDOWNS.WeightBearing);
+    const functionalMobilitySnapshot = buildStatusSnapshot('Post Operative Condition', 'functional_mobility_level', DROPDOWNS.Mobility);
+    const prosthesisStatusSnapshot = buildStatusSnapshot('Amputation', 'prosthesis_status', DROPDOWNS.Prosthesis);
+
+    // Full, unfiltered detail: every beneficiary against every outcome measure
+    // their condition uses, regardless of what's selected in the Reports UI.
+    const allOutcomeRows: ConsolidatedRow[] = [];
+    for (const scale of Object.values(OUTCOME_SCALES)) {
+        for (const r of rowsByScale.get(scale.id) || []) {
+            const initial = initialMap.get(r.patient_id);
+            allOutcomeRows.push({
+                patient_id: r.patient_id,
+                name: initial?.patient_name || '—',
+                scale: scale.label,
+                baseline_value: r.baseline_value as string | number | null,
+                baseline_date: r.baseline_date,
+                current_value: r.current_value as string | number | null,
+                current_date: r.current_date,
+                status: r.status,
+                follow_up_count: r.follow_up_count,
+            });
+        }
+    }
 
     const notes: string[] = [
         'Primary measure per condition (drives Executive Summary, Overall Outcome Analysis, Outcome by Condition, District-wise Performance and Monthly Trend): ' +
@@ -393,11 +525,13 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
                 })
                 .join('; '),
         '"Post Operative Condition" has no outcome scale configured in the system yet, so it is excluded from Outcome by Condition and Improvement by Outcome Measure.',
-        'Improvement by Outcome Measure lists only measures actually captured today. "Muscle Strength" and "ROM" under Neurological, and "Cough" and "Pulmonary Symptoms" under Pulmonary, are not currently captured as distinct fields and are omitted. Disability measures are further split into Locomotion (Walking/Wheelchair, Stairs, Community Access) and Mobility (Bed/Chair/Wheelchair Transfer, Toilet Transfer, Tub/Shower Transfer), matching the FIM Category filter in the Reports UI.',
+        'Improvement by Outcome Measure lists only measures actually captured today. "ROM" under Neurological, and "Cough" and "Pulmonary Symptoms" under Pulmonary, are not currently captured as distinct fields and are omitted. Disability measures are further split into Locomotion (Walking/Wheelchair, Stairs, Community Access) and Mobility (Bed/Chair/Wheelchair Transfer, Toilet Transfer, Tub/Shower Transfer), matching the FIM Category filter in the Reports UI.',
         'Pre vs Post Comparison uses standard VAS pain bands: No Pain = 0, Mild = 1-3, Moderate = 4-6, Severe = 7-10.',
         '"Intervention Completed" in the Assessment Completion funnel is approximated as beneficiaries with at least one recorded service entry — adjust if a different definition is intended.',
         'Post Assessment Completed / Baseline Completed and the Overall Outcome Analysis evaluable count may not sum identically, since a beneficiary can have a follow-up without a matching baseline, or a baseline/follow-up value that is not evaluable (e.g. missing or unmapped).',
-        'Disability Profile shows every distinct beneficiaries.disability_type value as-is. A handful are relabeled to match common RPWD Act report wording (e.g. "Neuromuscular Painful Condition" -> "Neuromuscular / Chronic Pain Conditions"); all others are shown under their real stored name rather than grouped into "Other".',
+        '"Baseline Only" in Outcome by Primary Condition and Improvement by Outcome Measure counts beneficiaries who have a baseline recorded but no follow-up yet, so no Improved/Same/Worse can be calculated for them. This is real recorded data, not missing data — it will move into Evaluable Count once a follow-up is entered for them.',
+        'Disability Profile always lists every disability category offered on the Add/Edit Beneficiary form (not the fixed 21-category RPWD Act schedule), so a category with no beneficiaries currently recorded shows 0 (0%) rather than being omitted. It groups beneficiaries.disability_type case/spacing variants of the same category into one row (e.g. "Neuromuscular Painful Condition", "Neuro Muscular Painful Condition" and "neuromuscular painful condition" all count as "Neuromuscular / Chronic Pain Conditions") and relabels a handful of values to match common RPWD Act report wording; anything else is shown under its own real name rather than grouped into "Other". Beneficiaries recorded as "Non-Disabled" or "General Screening" (not a disability category) and those with no disability_type on record are excluded from this table and its percentage base entirely.',
+        'Weight Bearing Status, Functional Mobility Level and Prosthesis Status are captured only once, at the initial assessment, and are not re-asked at follow-up — so these three tables show a current snapshot (how many beneficiaries are at each stage today), not improvement over time. A beneficiary with no value on record for a field is not counted anywhere in its table.',
     ];
 
     return {
@@ -410,6 +544,10 @@ export async function fetchProgramReport(filters: ProgramReportFilters): Promise
         monthlyTrend,
         assessmentCompletion,
         disabilityProfile,
+        weightBearingSnapshot,
+        functionalMobilitySnapshot,
+        prosthesisStatusSnapshot,
+        allOutcomeRows,
         notes,
     };
 }

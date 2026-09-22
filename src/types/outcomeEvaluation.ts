@@ -10,6 +10,7 @@ export interface OutcomeRow {
     current_value: string | number | null;
     current_date: string | null;
     status: OutcomeStatus;
+    follow_up_count: number;
 }
 
 export interface OutcomeSummary {

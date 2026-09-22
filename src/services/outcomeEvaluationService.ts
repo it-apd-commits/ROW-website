@@ -215,10 +215,12 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
     }
 
     const latestFollowUpMap = new Map<string, FollowUpRecord>();
+    const followUpCountMap = new Map<string, number>();
     for (const f of followUps as FollowUpRecord[]) {
         if (!latestFollowUpMap.has(f.patient_id)) {
             latestFollowUpMap.set(f.patient_id, f);
         }
+        followUpCountMap.set(f.patient_id, (followUpCountMap.get(f.patient_id) || 0) + 1);
     }
 
     const rows: OutcomeRow[] = [];
@@ -242,6 +244,7 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
                 current_value: null,
                 current_date: null,
                 status: 'baseline_only',
+                follow_up_count: followUpCountMap.get(patientId) || 0,
             });
             continue;
         }
@@ -260,6 +263,7 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
             current_value: currentValue as string | number | null,
             current_date: followUp.visit_date,
             status,
+            follow_up_count: followUpCountMap.get(patientId) || 0,
         });
     }
 
