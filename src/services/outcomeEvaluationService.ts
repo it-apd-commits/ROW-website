@@ -144,6 +144,30 @@ export function summarize(rows: OutcomeRow[]): OutcomeSummary {
     return summary;
 }
 
+// All-time count of beneficiaries with a baseline under this scale's condition
+// (and disability sub-type, if given) — deliberately ignores fromDate/toDate,
+// unlike getOutcomes(), so the Reports page can show it alongside the
+// date-filtered "Total Patients" count for context (e.g. "184 of 913 total").
+export async function getConditionTotalCount(scaleId: string, disabilityType?: string): Promise<number> {
+    const scale = getScale(scaleId);
+    if (!scale) return 0;
+
+    const rows = await fetchAllRows<{ patient_id: string }>(() => {
+        let query = supabase.from('clinical_assessment').select('patient_id');
+        if (scale.condition === 'Disability') {
+            query = query.in('condition', DISABILITY_CONDITION_VALUES);
+        } else if (scale.condition) {
+            query = query.eq('condition', scale.condition);
+        }
+        if (disabilityType) {
+            query = query.eq('disability_type', disabilityType);
+        }
+        return query;
+    });
+
+    return new Set(rows.map(r => r.patient_id)).size;
+}
+
 export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]> {
     const scale = getScale(filters.scaleId);
     if (!scale) throw new Error(`Unknown scale: ${filters.scaleId}`);

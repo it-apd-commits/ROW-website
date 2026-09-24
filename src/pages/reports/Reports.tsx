@@ -17,7 +17,7 @@ import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
-import { getOutcomes, summarize } from '@/services/outcomeEvaluationService';
+import { getOutcomes, getConditionTotalCount, summarize } from '@/services/outcomeEvaluationService';
 import { fetchProgramReport } from '@/services/programReportService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import { getAllScales, getScalesByCondition } from '@/config/outcomeScales';
@@ -87,6 +87,10 @@ export function ReportsPage() {
     const [cardFilter, setCardFilter] = useState<CardFilter>(null);
     const [isExporting, setIsExporting] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
+    // All-time count under the selected condition, ignoring the date range —
+    // shown alongside "Total Patients" so a narrow date filter's smaller
+    // number doesn't get mistaken for the full caseload under that condition.
+    const [totalUnderCondition, setTotalUnderCondition] = useState<number | null>(null);
     const [fimCategory, setFimCategory] = useState<FimCategory>('Locomotion');
 
     // Individual disability sub-types (Cerebral Palsy, Down Syndrome, etc.) share the
@@ -143,6 +147,19 @@ export function ReportsPage() {
     useEffect(() => {
         fetchReport();
     }, [fetchReport]);
+
+    useEffect(() => {
+        const effectiveId = activeScale?.id;
+        if (!effectiveId) {
+            setTotalUnderCondition(null);
+            return;
+        }
+        let cancelled = false;
+        getConditionTotalCount(effectiveId, disabilityTypeFilter).then(count => {
+            if (!cancelled) setTotalUnderCondition(count);
+        });
+        return () => { cancelled = true; };
+    }, [activeScale?.id, disabilityTypeFilter]);
 
     const filteredRows = rows.filter(r => {
         const matchesSearch = nameMatchesSearch(r.name, searchTerm) ||
@@ -601,6 +618,9 @@ export function ReportsPage() {
                         icon={<Users size={18} className="text-primary" />}
                         label="Total Patients"
                         value={summary.total}
+                        sub={totalUnderCondition !== null && totalUnderCondition !== summary.total
+                            ? `of ${totalUnderCondition} total under condition`
+                            : undefined}
                         accent="text-primary"
                         bgAccent="bg-primary/10"
                         active={cardFilter === null}
