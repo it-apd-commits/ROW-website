@@ -224,6 +224,12 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
     }
 
     const rows: OutcomeRow[] = [];
+    // A From/To Date filter is scoped to follow-up visits (the field labels say
+    // so) — a patient with no follow-up landing inside that window has nothing
+    // to show for the selected period, so exclude them entirely instead of
+    // falling back to a dateless "Baseline Only" row. Without this, the date
+    // filter never changed the row count and looked like it did nothing.
+    const hasDateFilter = Boolean(filters.fromDate || filters.toDate);
 
     for (const [patientId, baseline] of baselineMap) {
         const initial = initialMap.get(patientId);
@@ -234,6 +240,7 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
         const baselineValue = baseline[scale.baselineField] ?? null;
 
         if (!followUp) {
+            if (hasDateFilter) continue;
             rows.push({
                 patient_id: patientId,
                 file_number: patientId,
