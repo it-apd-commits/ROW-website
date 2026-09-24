@@ -25,6 +25,7 @@ import type { ScaleConfig } from '@/config/outcomeScales';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
 import { DROPDOWNS, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
 import { isDisabilityCondition } from '@/utils/assessmentLogic';
+import { ExportFiltersModal, type ExportFilters } from '@/components/reports/ExportFiltersModal';
 
 const FIM_CATEGORIES = ['Locomotion', 'Mobility'] as const;
 type FimCategory = typeof FIM_CATEGORIES[number];
@@ -85,6 +86,7 @@ export function ReportsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [cardFilter, setCardFilter] = useState<CardFilter>(null);
     const [isExporting, setIsExporting] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
     const [fimCategory, setFimCategory] = useState<FimCategory>('Locomotion');
 
     // Individual disability sub-types (Cerebral Palsy, Down Syndrome, etc.) share the
@@ -157,7 +159,9 @@ export function ReportsPage() {
 
     const pct = (n: number) => evaluableCount > 0 ? `${((n / evaluableCount) * 100).toFixed(1)}%` : '—';
 
-    const handleExport = async () => {
+    // Full, unfiltered program-wide export — unchanged behavior, used when the
+    // Export Filters popup is submitted with every field left blank.
+    const handleExportFull = async () => {
         setIsExporting(true);
         try {
         const ExcelJS = (await import('exceljs')).default;
@@ -390,6 +394,111 @@ export function ReportsPage() {
         window.URL.revokeObjectURL(url);
         } finally {
             setIsExporting(false);
+            setShowExportModal(false);
+        }
+    };
+
+    // Scoped export — used when the Export Filters popup is submitted with at
+    // least one filter set. Runs getOutcomes() per relevant scale (instead of
+    // the always-unfiltered fetchProgramReport) so Condition/Date Range/Search
+    // actually narrow what ends up in the file.
+    const handleExportFiltered = async (filters: ExportFilters) => {
+        setIsExporting(true);
+        try {
+            const ExcelJS = (await import('exceljs')).default;
+            const workbook = new ExcelJS.Workbook();
+
+            const scaleCondition = filters.condition
+                ? (isDisabilityCondition(filters.condition) ? 'Disability' : filters.condition)
+                : null;
+            const disabilityType = filters.condition && isDisabilityCondition(filters.condition) && filters.condition !== 'Disability'
+                ? filters.condition
+                : undefined;
+            const scales = scaleCondition ? getScalesByCondition(scaleCondition) : getAllScales();
+
+            const perScale = await Promise.all(scales.map(scale => getOutcomes({
+                scaleId: scale.id,
+                fromDate: filters.fromDate || undefined,
+                toDate: filters.toDate || undefined,
+                disabilityType,
+            })));
+
+            let combined = scales.flatMap((scale, i) => perScale[i].map(r => ({ ...r, scaleLabel: scale.label })));
+
+            const searchTerm = filters.search.trim();
+            if (searchTerm) {
+                combined = combined.filter(r => nameMatchesSearch(r.name, searchTerm) || r.patient_id.toLowerCase().includes(searchTerm.toLowerCase()));
+            }
+
+            const counts = summarize(combined);
+            const evaluable = counts.improved + counts.declined + counts.same + counts.needs_referral;
+            const pctOf = (n: number) => evaluable > 0 ? `${((n / evaluable) * 100).toFixed(1)}%` : '—';
+
+            const summarySheet = workbook.addWorksheet('Summary');
+            summarySheet.columns = [
+                { header: 'Field', key: 'field', width: 32 },
+                { header: 'Value', key: 'value', width: 30 },
+            ];
+            summarySheet.addRow({ field: 'Report', value: 'Outcome Evaluation Report (Filtered)' });
+            summarySheet.addRow({ field: 'Condition', value: filters.condition || 'All Conditions' });
+            summarySheet.addRow({ field: 'From Date (Follow-up)', value: filters.fromDate || 'Any' });
+            summarySheet.addRow({ field: 'To Date (Follow-up)', value: filters.toDate || 'Any' });
+            summarySheet.addRow({ field: 'Search', value: searchTerm || 'None' });
+            summarySheet.addRow({ field: 'Exported On', value: new Date().toISOString().split('T')[0] });
+            summarySheet.addRow({ field: '', value: '' });
+            summarySheet.addRow({ field: 'Total Records', value: counts.total });
+            summarySheet.addRow({ field: 'Improved', value: `${counts.improved} (${pctOf(counts.improved)})` });
+            summarySheet.addRow({ field: 'Declined', value: `${counts.declined} (${pctOf(counts.declined)})` });
+            summarySheet.addRow({ field: 'Same', value: `${counts.same} (${pctOf(counts.same)})` });
+            summarySheet.addRow({ field: 'Needs Referral', value: `${counts.needs_referral} (${pctOf(counts.needs_referral)})` });
+            summarySheet.addRow({ field: 'Baseline Only', value: counts.baseline_only });
+
+            const dataSheet = workbook.addWorksheet('Filtered Report');
+            dataSheet.columns = [
+                { header: 'Patient ID', key: 'patient_id', width: 24 },
+                { header: 'Name', key: 'name', width: 25 },
+                { header: 'Scale', key: 'scale', width: 28 },
+                { header: 'Baseline Value', key: 'baseline_value', width: 18 },
+                { header: 'Baseline Date', key: 'baseline_date', width: 16 },
+                { header: 'Endline Value', key: 'current_value', width: 18 },
+                { header: 'Endline Date', key: 'current_date', width: 16 },
+                { header: 'Status', key: 'status', width: 18 },
+                { header: 'Follow-up Number', key: 'follow_up_count', width: 18 },
+            ];
+            combined.forEach(r => {
+                dataSheet.addRow({
+                    patient_id: r.patient_id,
+                    name: r.name,
+                    scale: r.scaleLabel,
+                    baseline_value: formatValue(r.baseline_value),
+                    baseline_date: formatDate(r.baseline_date),
+                    current_value: formatValue(r.current_value),
+                    current_date: formatDate(r.current_date),
+                    status: STATUS_CONFIG[r.status]?.label || r.status,
+                    follow_up_count: r.follow_up_count,
+                });
+            });
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const url = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `ROW_Outcome_Report_Filtered_${new Date().toISOString().split('T')[0]}.xlsx`;
+            anchor.click();
+            window.URL.revokeObjectURL(url);
+        } finally {
+            setIsExporting(false);
+            setShowExportModal(false);
+        }
+    };
+
+    const handleExportSubmit = (filters: ExportFilters) => {
+        const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim());
+        if (hasFilters) {
+            handleExportFiltered(filters);
+        } else {
+            handleExportFull();
         }
     };
 
@@ -410,8 +519,8 @@ export function ReportsPage() {
                         <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                     </Button>
                     <Button
-                        onClick={handleExport}
-                        disabled={rows.length === 0 || isLoading || isExporting}
+                        onClick={() => setShowExportModal(true)}
+                        disabled={isExporting}
                         className="flex items-center gap-2 shadow-lg shadow-primary/20"
                     >
                         {isExporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
@@ -667,16 +776,25 @@ export function ReportsPage() {
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Excel Export</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
-                        The export always covers every condition, every scale, and all-time data — it ignores the
-                        Condition/Scale/Date Range/Search selected above, which only control the table on this screen.
-                        It includes 3 tabs: Summary (program-wide totals), Consolidated (every beneficiary against
-                        every outcome measure their condition uses), and Program Report — Executive Summary, Overall
-                        Outcome Analysis, Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District
-                        Performance, Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology —
-                        stacked as labeled, color-coded sections with a short description under each heading.
+                        Export Excel opens a filter popup independent of the Condition/Scale/Date Range/Search
+                        selected above. Leave every field blank there to get the full program-wide report: 3 tabs —
+                        Summary (program-wide totals), Consolidated (every beneficiary against every outcome measure
+                        their condition uses), and Program Report — Executive Summary, Overall Outcome Analysis,
+                        Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District Performance,
+                        Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology — stacked
+                        as labeled, color-coded sections. Set a Condition, Date Range, and/or Search there instead to
+                        get a 2-tab file (Summary + Filtered Report) scoped to just that slice.
                     </p>
                 </Card>
             </div>
+
+            <ExportFiltersModal
+                isOpen={showExportModal}
+                isExporting={isExporting}
+                conditions={CONDITIONS}
+                onClose={() => setShowExportModal(false)}
+                onExport={handleExportSubmit}
+            />
         </div>
     );
 }
