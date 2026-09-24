@@ -73,10 +73,11 @@ export function BeneficiaryProfilePage() {
     const [isLoading, setIsLoading] = useState(true);
     const [assignTarget, setAssignTarget] = useState<AssignFileNumberTarget | null>(null);
     const { canImportFileNumbers } = usePermissions();
-    // Session History + Outcome Summary for the most recent assessment, shown
-    // as its own section below Assessment History (same data/layout as the
-    // full Assessment View page).
+    // Session History + Outcome Summary for the most recent assessment that
+    // actually reached Clinical stage, shown as its own section below
+    // Assessment History (same data/layout as the full Assessment View page).
     const [latestSession, setLatestSession] = useState<{ clinical: ClinicalAssessment | null; followUps: FollowUpAssessment[] } | null>(null);
+    const [sessionAssessment, setSessionAssessment] = useState<AssessmentSummary | null>(null);
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -206,11 +207,16 @@ export function BeneficiaryProfilePage() {
             setAssessments(assessmentSummaries);
 
             // Session History / Outcome Summary is shown for the most recent
-            // assessment (assessmentSummaries is sorted latest-first above).
-            if (assessmentSummaries.length > 0) {
+            // assessment that actually reached Clinical stage — a newer but
+            // still-pending assessment (assessmentSummaries[0]) has no clinical
+            // record yet, so picking it here would hide an older assessment's
+            // already-recorded baseline/follow-up sessions.
+            const sourceAssessment = assessmentSummaries.find(a => a.clinical_done) ?? null;
+            setSessionAssessment(sourceAssessment);
+            if (sourceAssessment) {
                 const [clinical, followUps] = await Promise.all([
-                    assessmentService.getClinical(assessmentSummaries[0].patient_id),
-                    assessmentService.getFollowUps(assessmentSummaries[0].patient_id),
+                    assessmentService.getClinical(sourceAssessment.patient_id),
+                    assessmentService.getFollowUps(sourceAssessment.patient_id),
                 ]);
                 setLatestSession({ clinical, followUps });
             } else {
@@ -616,14 +622,15 @@ export function BeneficiaryProfilePage() {
                             )}
                         </Card>
 
-                        {/* Session History / Outcome Summary for the most recent assessment */}
-                        {assessments.length > 0 && (
+                        {/* Session History / Outcome Summary for the most recent assessment
+                            that has reached Clinical stage (see sessionAssessment above) */}
+                        {sessionAssessment && (
                             <>
                                 <AssessmentSessionSummary
-                                    condition={assessments[0].primary_condition}
+                                    condition={sessionAssessment.primary_condition}
                                     clinical={latestSession?.clinical ?? null}
                                     followUps={latestSession?.followUps ?? []}
-                                    baselineDate={assessments[0].assessment_date}
+                                    baselineDate={sessionAssessment.assessment_date}
                                 />
                                 <div className="flex items-center justify-between bg-surface p-5 rounded-xl border border-gray-100 shadow-sm">
                                     <div className="flex items-center gap-3">
@@ -632,7 +639,7 @@ export function BeneficiaryProfilePage() {
                                             Need to update this assessment? Edit any step below.
                                         </span>
                                     </div>
-                                    <Button onClick={() => navigate(`/assessments/edit/${assessments[0].patient_id}`, { state: { startStep: 3, openFollowUpSession: true } })}>
+                                    <Button onClick={() => navigate(`/assessments/edit/${sessionAssessment.patient_id}`, { state: { startStep: 3, openFollowUpSession: true } })}>
                                         <Edit size={16} className="mr-2 inline" /> Edit Follow Up
                                     </Button>
                                 </div>
