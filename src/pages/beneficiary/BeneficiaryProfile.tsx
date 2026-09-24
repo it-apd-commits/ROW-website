@@ -309,6 +309,8 @@ export function BeneficiaryProfilePage() {
                                 mobileNo: beneficiary.mobile_no,
                                 city: beneficiary.city,
                                 address: beneficiary.address,
+                                beneficiaryId: beneficiary.id,
+                                beneficiaryOfflineToken: beneficiary.offline_token,
                             },
                         }}
                         className="flex-1 sm:flex-none"
