@@ -7,11 +7,15 @@ interface Props {
     condition: string;
     clinical: ClinicalAssessment | null;
     followUps: FollowUpAssessment[];
+    // The initial assessment's assessment_date — the date staff actually chose
+    // for the baseline visit. clinical.created_at is just the DB insert time
+    // (e.g. when the record synced), which can be days after the real visit.
+    baselineDate?: string | null;
 }
 
 // Shared by AssessmentView (full page) and BeneficiaryProfile (inline preview)
 // so the two stay visually and logically in sync.
-export function AssessmentSessionSummary({ condition, clinical, followUps }: Props) {
+export function AssessmentSessionSummary({ condition, clinical, followUps, baselineDate }: Props) {
     const outcomes: { label: string; baseline: string | number | null; current: string | number | null; improved: boolean | null }[] = [];
     const latest = followUps[followUps.length - 1];
 
@@ -125,7 +129,7 @@ export function AssessmentSessionSummary({ condition, clinical, followUps }: Pro
                                             <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Baseline</span>
                                         </td>
                                         <td className="py-3 px-3">
-                                            {clinical.created_at ? new Date(clinical.created_at).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                            {baselineDate ? new Date(baselineDate).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                                         </td>
                                         {condition === 'Neuro Muscular Painful Condition' && (
                                             <>
@@ -263,7 +267,7 @@ export function AssessmentSessionSummary({ condition, clinical, followUps }: Pro
                         <div>
                             <span className="text-gray-400 text-xs uppercase font-bold">First Assessment:</span>
                             <span className="ml-2 font-bold text-text-main">
-                                {clinical.created_at ? new Date(clinical.created_at).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                {baselineDate ? new Date(baselineDate).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                             </span>
                         </div>
                         <div>

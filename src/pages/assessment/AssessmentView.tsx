@@ -238,7 +238,7 @@ export function AssessmentViewPage() {
                 )}
             </Card>
 
-            <AssessmentSessionSummary condition={condition} clinical={clinical} followUps={followUps} />
+            <AssessmentSessionSummary condition={condition} clinical={clinical} followUps={followUps} baselineDate={initial.assessment_date} />
 
             {/* ── Recommended Treatment Plan ── */}
             {clinical && (

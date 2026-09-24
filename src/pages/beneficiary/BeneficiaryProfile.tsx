@@ -621,6 +621,7 @@ export function BeneficiaryProfilePage() {
                                     condition={assessments[0].primary_condition}
                                     clinical={latestSession?.clinical ?? null}
                                     followUps={latestSession?.followUps ?? []}
+                                    baselineDate={assessments[0].assessment_date}
                                 />
                                 <div className="flex items-center justify-between bg-surface p-5 rounded-xl border border-gray-100 shadow-sm">
                                     <div className="flex items-center gap-3">
