@@ -17,7 +17,7 @@ import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
-import { getOutcomes, getConditionTotalCount, summarize } from '@/services/outcomeEvaluationService';
+import { getOutcomes, getConditionTotalCount, getDonorOptions, summarize } from '@/services/outcomeEvaluationService';
 import { fetchProgramReport } from '@/services/programReportService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import { getAllScales, getScalesByCondition } from '@/config/outcomeScales';
@@ -92,6 +92,12 @@ export function ReportsPage() {
     // number doesn't get mistaken for the full caseload under that condition.
     const [totalUnderCondition, setTotalUnderCondition] = useState<number | null>(null);
     const [fimCategory, setFimCategory] = useState<FimCategory>('Locomotion');
+    const [selectedDonor, setSelectedDonor] = useState<string>('all');
+    const [donorOptions, setDonorOptions] = useState<string[]>([]);
+
+    useEffect(() => {
+        getDonorOptions().then(setDonorOptions).catch(() => setDonorOptions([]));
+    }, []);
 
     // Individual disability sub-types (Cerebral Palsy, Down Syndrome, etc.) share the
     // same 'Disability' outcome scales (FIM measures) as the broad 'Disability' condition.
@@ -131,6 +137,7 @@ export function ReportsPage() {
                 fromDate: fromDate || undefined,
                 toDate: toDate || undefined,
                 disabilityType: disabilityTypeFilter,
+                donor: selectedDonor !== 'all' ? selectedDonor : undefined,
             };
             const data = await getOutcomes(filters);
             setRows(data);
@@ -142,7 +149,7 @@ export function ReportsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [activeScale?.id, fromDate, toDate, disabilityTypeFilter]);
+    }, [activeScale?.id, fromDate, toDate, disabilityTypeFilter, selectedDonor]);
 
     useEffect(() => {
         fetchReport();
@@ -155,11 +162,11 @@ export function ReportsPage() {
             return;
         }
         let cancelled = false;
-        getConditionTotalCount(effectiveId, disabilityTypeFilter).then(count => {
+        getConditionTotalCount(effectiveId, disabilityTypeFilter, selectedDonor !== 'all' ? selectedDonor : undefined).then(count => {
             if (!cancelled) setTotalUnderCondition(count);
         });
         return () => { cancelled = true; };
-    }, [activeScale?.id, disabilityTypeFilter]);
+    }, [activeScale?.id, disabilityTypeFilter, selectedDonor]);
 
     const filteredRows = rows.filter(r => {
         const matchesSearch = nameMatchesSearch(r.name, searchTerm) ||
@@ -438,6 +445,7 @@ export function ReportsPage() {
                 fromDate: filters.fromDate || undefined,
                 toDate: filters.toDate || undefined,
                 disabilityType,
+                donor: filters.donor || undefined,
             })));
 
             let combined = scales.flatMap((scale, i) => perScale[i].map(r => ({ ...r, scaleLabel: scale.label })));
@@ -458,6 +466,7 @@ export function ReportsPage() {
             ];
             summarySheet.addRow({ field: 'Report', value: 'Outcome Evaluation Report (Filtered)' });
             summarySheet.addRow({ field: 'Condition', value: filters.condition || 'All Conditions' });
+            summarySheet.addRow({ field: 'Donor', value: filters.donor || 'All Donors' });
             summarySheet.addRow({ field: 'From Date (Follow-up)', value: filters.fromDate || 'Any' });
             summarySheet.addRow({ field: 'To Date (Follow-up)', value: filters.toDate || 'Any' });
             summarySheet.addRow({ field: 'Search', value: searchTerm || 'None' });
@@ -511,7 +520,7 @@ export function ReportsPage() {
     };
 
     const handleExportSubmit = (filters: ExportFilters) => {
-        const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim());
+        const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim() || filters.donor);
         if (hasFilters) {
             handleExportFiltered(filters);
         } else {
@@ -552,7 +561,7 @@ export function ReportsPage() {
                     <Filter size={16} className="text-primary" />
                     <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Filters</h3>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <Select
                         label="Condition"
                         name="condition"
@@ -575,6 +584,13 @@ export function ReportsPage() {
                         value={activeScale?.id || ''}
                         onChange={(e) => setScaleId(e.target.value)}
                         options={conditionScales.map(s => ({ value: s.id, label: s.label }))}
+                    />
+                    <Select
+                        label="Donor"
+                        name="donor"
+                        value={selectedDonor}
+                        onChange={(e) => setSelectedDonor(e.target.value)}
+                        options={[{ value: 'all', label: 'All Donors' }, ...donorOptions.map(d => ({ value: d, label: d }))]}
                     />
                     {!isDisability && <div />}
                 </div>
@@ -796,14 +812,14 @@ export function ReportsPage() {
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Excel Export</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
-                        Export Excel opens a filter popup independent of the Condition/Scale/Date Range/Search
+                        Export Excel opens a filter popup independent of the Condition/Scale/Date Range/Search/Donor
                         selected above. Leave every field blank there to get the full program-wide report: 3 tabs —
                         Summary (program-wide totals), Consolidated (every beneficiary against every outcome measure
                         their condition uses), and Program Report — Executive Summary, Overall Outcome Analysis,
                         Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District Performance,
                         Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology — stacked
-                        as labeled, color-coded sections. Set a Condition, Date Range, and/or Search there instead to
-                        get a 2-tab file (Summary + Filtered Report) scoped to just that slice.
+                        as labeled, color-coded sections. Set a Condition, Donor, Date Range, and/or Search there instead
+                        to get a 2-tab file (Summary + Filtered Report) scoped to just that slice.
                     </p>
                 </Card>
             </div>
@@ -812,6 +828,7 @@ export function ReportsPage() {
                 isOpen={showExportModal}
                 isExporting={isExporting}
                 conditions={CONDITIONS}
+                donors={donorOptions}
                 onClose={() => setShowExportModal(false)}
                 onExport={handleExportSubmit}
             />

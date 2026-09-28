@@ -9,24 +9,26 @@ export interface ExportFilters {
     fromDate: string;
     toDate: string;
     search: string;
+    donor: string;
 }
 
 interface ExportFiltersModalProps {
     isOpen: boolean;
     isExporting: boolean;
     conditions: string[];
+    donors: string[];
     onClose: () => void;
     onExport: (filters: ExportFilters) => void;
 }
 
-const EMPTY_FILTERS: ExportFilters = { condition: '', fromDate: '', toDate: '', search: '' };
+const EMPTY_FILTERS: ExportFilters = { condition: '', fromDate: '', toDate: '', search: '', donor: '' };
 
-export function ExportFiltersModal({ isOpen, isExporting, conditions, onClose, onExport }: ExportFiltersModalProps) {
+export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, onClose, onExport }: ExportFiltersModalProps) {
     const [filters, setFilters] = useState<ExportFilters>(EMPTY_FILTERS);
 
     if (!isOpen) return null;
 
-    const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim());
+    const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim() || filters.donor);
 
     const handleClose = () => {
         setFilters(EMPTY_FILTERS);
@@ -60,6 +62,23 @@ export function ExportFiltersModal({ isOpen, isExporting, conditions, onClose, o
                                 <option value="">All Conditions</option>
                                 {conditions.map(c => (
                                     <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
+                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 w-full">
+                        <label className="text-sm font-medium text-text-main">Donor</label>
+                        <div className="relative">
+                            <select
+                                className="w-full px-3 py-2.5 border rounded-lg appearance-none bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary border-gray-300"
+                                value={filters.donor}
+                                onChange={(e) => setFilters(f => ({ ...f, donor: e.target.value }))}
+                            >
+                                <option value="">All Donors</option>
+                                {donors.map(d => (
+                                    <option key={d} value={d}>{d}</option>
                                 ))}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />

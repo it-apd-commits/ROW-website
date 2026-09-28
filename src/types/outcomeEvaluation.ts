@@ -28,4 +28,5 @@ export interface OutcomeFilters {
     fromDate?: string;
     toDate?: string;
     disabilityType?: string;
+    donor?: string;
 }

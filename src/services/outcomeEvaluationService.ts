@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { getScale } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
 import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
+import { normalizeDonor, UNSPECIFIED_DONOR } from '@/services/dashboardService';
 import type { OutcomeRow, OutcomeSummary, OutcomeFilters, OutcomeStatus } from '@/types/outcomeEvaluation';
 
 // FIM scales are configured with condition: 'Disability', but clinical_assessment
@@ -28,6 +29,7 @@ interface InitialRecord {
     patient_id: string;
     patient_name: string;
     primary_condition: string | null;
+    phone?: string | null;
 }
 
 // Supabase caps selects at 1000 rows by default; page through .range()
@@ -56,6 +58,45 @@ const chunk = <T>(arr: T[], size: number): T[][] => {
     }
     return out;
 };
+
+// initial_assessment has no donor column of its own — soft-link to the
+// beneficiaries table via normalized name/phone, same approach used by
+// AssessmentHistory.tsx and Dashboard.tsx (beneficiary_id isn't reliably
+// backfilled for older or offline-created records).
+const normalizeName = (n: string | null | undefined): string => (n || '').trim().toLowerCase();
+const normalizePhone = (p: string | null | undefined): string => (p || '').trim();
+
+async function buildDonorResolver(): Promise<(name?: string | null, phone?: string | null) => string> {
+    const rows = await fetchAllRows<{ name: string | null; mobile_no: string | null; donor: string | null }>(() =>
+        supabase.from('beneficiaries').select('name, mobile_no, donor')
+    );
+    const donorByName = new Map<string, string>();
+    const donorByPhone = new Map<string, string>();
+    rows.forEach((b) => {
+        const d = normalizeDonor(b.donor);
+        const n = normalizeName(b.name);
+        const p = normalizePhone(b.mobile_no);
+        if (n) donorByName.set(n, d);
+        if (p) donorByPhone.set(p, d);
+    });
+    return (name?: string | null, phone?: string | null): string => {
+        const n = normalizeName(name);
+        const p = normalizePhone(phone);
+        if (n && donorByName.has(n)) return donorByName.get(n)!;
+        if (p && donorByPhone.has(p)) return donorByPhone.get(p)!;
+        return UNSPECIFIED_DONOR;
+    };
+}
+
+// Distinct donor list for the Reports filter + Export Filters popup dropdowns.
+export async function getDonorOptions(): Promise<string[]> {
+    const rows = await fetchAllRows<{ donor: string | null }>(() =>
+        supabase.from('beneficiaries').select('donor')
+    );
+    const donors = new Set<string>();
+    rows.forEach((r) => donors.add(normalizeDonor(r.donor)));
+    return Array.from(donors).sort((a, b) => a.localeCompare(b));
+}
 
 export function classifyNumeric(
     baseline: number | null,
@@ -148,7 +189,7 @@ export function summarize(rows: OutcomeRow[]): OutcomeSummary {
 // (and disability sub-type, if given) — deliberately ignores fromDate/toDate,
 // unlike getOutcomes(), so the Reports page can show it alongside the
 // date-filtered "Total Patients" count for context (e.g. "184 of 913 total").
-export async function getConditionTotalCount(scaleId: string, disabilityType?: string): Promise<number> {
+export async function getConditionTotalCount(scaleId: string, disabilityType?: string, donor?: string): Promise<number> {
     const scale = getScale(scaleId);
     if (!scale) return 0;
 
@@ -165,7 +206,25 @@ export async function getConditionTotalCount(scaleId: string, disabilityType?: s
         return query;
     });
 
-    return new Set(rows.map(r => r.patient_id)).size;
+    const ids = new Set(rows.map(r => r.patient_id));
+
+    if (donor && donor !== 'all') {
+        const idBatches = chunk(Array.from(ids), ID_CHUNK_SIZE);
+        const initials: { patient_id: string; patient_name: string; phone: string | null }[] = [];
+        for (const idBatch of idBatches) {
+            const batch = await fetchAllRows<{ patient_id: string; patient_name: string; phone: string | null }>(() =>
+                supabase.from('initial_assessment').select('patient_id, patient_name, phone').in('patient_id', idBatch)
+            );
+            initials.push(...batch);
+        }
+        const resolveDonor = await buildDonorResolver();
+        const donorIds = new Set(
+            initials.filter(i => resolveDonor(i.patient_name, i.phone) === donor).map(i => i.patient_id)
+        );
+        return donorIds.size;
+    }
+
+    return ids.size;
 }
 
 export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]> {
@@ -174,15 +233,22 @@ export async function getOutcomes(filters: OutcomeFilters): Promise<OutcomeRow[]
 
     const initials = await fetchAllRows<InitialRecord>(() => supabase
         .from('initial_assessment')
-        .select('patient_id, patient_name, primary_condition'));
+        .select('patient_id, patient_name, primary_condition, phone'));
     if (initials.length === 0) return [];
 
+    let scopedInitials = initials;
+    if (filters.donor && filters.donor !== 'all') {
+        const resolveDonor = await buildDonorResolver();
+        scopedInitials = initials.filter(i => resolveDonor(i.patient_name, i.phone) === filters.donor);
+        if (scopedInitials.length === 0) return [];
+    }
+
     const initialMap = new Map<string, InitialRecord>();
-    for (const i of initials as InitialRecord[]) {
+    for (const i of scopedInitials as InitialRecord[]) {
         initialMap.set(i.patient_id, i);
     }
 
-    const patientIds = initials.map((i: InitialRecord) => i.patient_id);
+    const patientIds = scopedInitials.map((i: InitialRecord) => i.patient_id);
 
     const clinicals: BaselineRecord[] = [];
     const followUps: FollowUpRecord[] = [];
