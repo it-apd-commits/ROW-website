@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { fetchAllRows } from './dashboardService';
+import { fetchAllRows, normalizeDonor, UNSPECIFIED_DONOR } from './dashboardService';
 import { classifyByScale, toNumeric } from './outcomeEvaluationService';
 import {
     OUTCOME_SCALES,
@@ -10,7 +10,20 @@ import {
 import type { ScaleConfig } from '@/config/outcomeScales';
 import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
 import { DROPDOWNS, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
+import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import type { OutcomeStatus } from '@/types/outcomeEvaluation';
+
+// Optional scoping for fetchProgramReport — mirrors the Export Filters popup
+// (Condition/Donor/Date Range/Search) so the same rich, multi-section report
+// can be produced for a slice instead of only the full program. Every field
+// left undefined reproduces the original unfiltered report exactly.
+export interface ProgramReportFilters {
+    condition?: string;
+    donor?: string;
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
+}
 
 const DISABILITY_CONDITION_VALUES = ['Disability', ...DISABILITY_TYPES];
 
@@ -69,6 +82,7 @@ interface InitialRecord {
     patient_id: string;
     patient_name: string;
     primary_condition: string | null;
+    phone?: string | null;
 }
 
 interface BaselineRecord {
@@ -90,7 +104,17 @@ interface BeneficiaryRecord {
     file_number: string | null;
     district: string | null;
     disability_type: string | null;
+    name: string | null;
+    mobile_no: string | null;
+    donor: string | null;
 }
+
+// initial_assessment has no donor column of its own — soft-link to the
+// beneficiaries table via normalized name/phone, same approach used by
+// outcomeEvaluationService.ts, Dashboard.tsx and AssessmentHistory.tsx
+// (beneficiary_id isn't reliably backfilled for older/offline records).
+const normalizeName = (n: string | null | undefined): string => (n || '').trim().toLowerCase();
+const normalizePhone = (p: string | null | undefined): string => (p || '').trim();
 
 interface ScaleOutcomeRow {
     patient_id: string;
@@ -225,29 +249,68 @@ function vasBand(value: number): string {
 // program (all conditions, all patients) in a single set of table scans — unlike
 // getOutcomes() in outcomeEvaluationService, which is scoped to one scale/condition
 // at a time and is called from the per-scale Reports export.
-// Always covers every beneficiary, every condition, and all-time data — not
-// scoped to whatever Condition/Scale/Date Range is selected in the Reports UI.
-// That on-screen selection only drives what's shown on screen; this function
-// (and everything it feeds in the Excel export) is intentionally unfiltered.
-export async function fetchProgramReport(): Promise<ProgramReport> {
+// With no filters, this covers every beneficiary, every condition, and
+// all-time data — the on-screen Reports selection never affects it. Passing
+// `filters` (Condition/Donor/Date Range/Search, matching the Export Filters
+// popup) scopes every assessment/outcome-driven section to that slice while
+// keeping the same rich, multi-section report shape. Registration Completed
+// (Assessment Completion funnel) and Disability Profile are population-level
+// tables sourced straight from `beneficiaries`, not assessments, so only the
+// Donor filter scopes them — Condition/Search have no meaningful mapping onto
+// "every registered beneficiary" regardless of whether they've been assessed.
+export async function fetchProgramReport(filters: ProgramReportFilters = {}): Promise<ProgramReport> {
     const [initials, clinicals, followUps, beneficiaries, serviceEntries] = await Promise.all([
         fetchAllRows<InitialRecord>(() => supabase
             .from('initial_assessment')
-            .select('patient_id, patient_name, primary_condition')),
+            .select('patient_id, patient_name, primary_condition, phone')),
         fetchAllRows<BaselineRecord>(() => supabase
             .from('clinical_assessment')
             .select('*')
             .order('created_at', { ascending: true })),
-        fetchAllRows<FollowUpRecord>(() => supabase
-            .from('follow_up_assessment')
-            .select('*')
-            .order('visit_date', { ascending: false })),
-        fetchAllRows<BeneficiaryRecord>(() => supabase.from('beneficiaries').select('id, file_number, district, disability_type')),
+        fetchAllRows<FollowUpRecord>(() => {
+            let q = supabase
+                .from('follow_up_assessment')
+                .select('*')
+                .order('visit_date', { ascending: false });
+            if (filters.fromDate) q = q.gte('visit_date', filters.fromDate);
+            if (filters.toDate) q = q.lte('visit_date', filters.toDate);
+            return q;
+        }),
+        fetchAllRows<BeneficiaryRecord>(() => supabase.from('beneficiaries').select('id, file_number, district, disability_type, name, mobile_no, donor')),
         fetchAllRows<{ file_number: string | null }>(() => supabase.from('service_entries').select('file_number')),
     ]);
 
+    // Condition/Donor/Search narrow the assessed-patient population that every
+    // outcome-driven section below is built from (they all key off initialMap).
+    let scopedInitials = initials;
+    if (filters.condition) {
+        scopedInitials = scopedInitials.filter(i => i.primary_condition === filters.condition);
+    }
+    if (filters.donor) {
+        const donorByName = new Map<string, string>();
+        const donorByPhone = new Map<string, string>();
+        beneficiaries.forEach(b => {
+            const d = normalizeDonor(b.donor);
+            const n = normalizeName(b.name);
+            const p = normalizePhone(b.mobile_no);
+            if (n) donorByName.set(n, d);
+            if (p) donorByPhone.set(p, d);
+        });
+        scopedInitials = scopedInitials.filter(i => {
+            const n = normalizeName(i.patient_name);
+            const p = normalizePhone(i.phone);
+            const d = (n && donorByName.get(n)) || (p && donorByPhone.get(p)) || UNSPECIFIED_DONOR;
+            return d === filters.donor;
+        });
+    }
+    if (filters.search && filters.search.trim()) {
+        const term = filters.search.trim();
+        scopedInitials = scopedInitials.filter(i =>
+            nameMatchesSearch(i.patient_name, term) || i.patient_id.toLowerCase().includes(term.toLowerCase()));
+    }
+
     const initialMap = new Map<string, InitialRecord>();
-    initials.forEach(i => initialMap.set(i.patient_id, i));
+    scopedInitials.forEach(i => initialMap.set(i.patient_id, i));
 
     // Keep every baseline row per patient (already ascending by created_at) so each
     // scale can pick the earliest row matching its own condition — mirrors getOutcomes().
@@ -273,8 +336,28 @@ export async function fetchProgramReport(): Promise<ProgramReport> {
         if (b.id) districtByPatient.set(b.id, district);
     });
 
+    // Registration Completed and Disability Profile are population-level
+    // tables built straight from `beneficiaries` (not from assessed patients),
+    // so they're scoped by the Donor filter directly rather than via
+    // initialMap — a beneficiary can belong to a donor without having taken
+    // any assessment yet, and should still count toward these two tables.
+    const donorScopedBeneficiaries = filters.donor
+        ? beneficiaries.filter(b => normalizeDonor(b.donor) === filters.donor)
+        : beneficiaries;
+
+    const donorByKey = new Map<string, string>();
+    beneficiaries.forEach(b => {
+        const d = normalizeDonor(b.donor);
+        if (b.file_number) donorByKey.set(b.file_number, d);
+        if (b.id) donorByKey.set(b.id, d);
+    });
+
     const servicedPatients = new Set<string>();
-    serviceEntries.forEach(s => { if (s.file_number) servicedPatients.add(s.file_number); });
+    serviceEntries.forEach(s => {
+        if (!s.file_number) return;
+        if (filters.donor && (donorByKey.get(s.file_number) || UNSPECIFIED_DONOR) !== filters.donor) return;
+        servicedPatients.add(s.file_number);
+    });
 
     const findBaselineFor = (patientId: string, scale: ScaleConfig): BaselineRecord | undefined => {
         const list = baselinesByPatient.get(patientId);
@@ -319,9 +402,10 @@ export async function fetchProgramReport(): Promise<ProgramReport> {
     const declined = primaryStatusRows.filter(r => r.status === 'declined').length;
     const evaluable = improved + same + declined;
 
-    const totalAssessed = initials.length;
-    const baselineCompleted = baselinesByPatient.size;
-    const postAssessmentCompleted = latestFollowUpByPatient.size;
+    const scopedPatientIds = Array.from(initialMap.keys());
+    const totalAssessed = scopedInitials.length;
+    const baselineCompleted = scopedPatientIds.filter(id => baselinesByPatient.has(id)).length;
+    const postAssessmentCompleted = scopedPatientIds.filter(id => latestFollowUpByPatient.has(id)).length;
 
     const executiveSummary: ExecutiveSummary = {
         totalAssessed,
@@ -432,7 +516,7 @@ export async function fetchProgramReport(): Promise<ProgramReport> {
             return { month, improvedPct: total > 0 ? pct(b.improved, total) : null, evaluableCount: total };
         });
 
-    const registrationCompleted = beneficiaries.length;
+    const registrationCompleted = donorScopedBeneficiaries.length;
     const funnelPct = (n: number) => pct(n, registrationCompleted);
     const assessmentCompletion: FunnelRow[] = [
         { stage: 'Registration Completed', count: registrationCompleted, pct: 100 },
@@ -457,7 +541,7 @@ export async function fetchProgramReport(): Promise<ProgramReport> {
         disabilityLabelForKey.set(key, DISABILITY_REPORT_LABELS[key] || titleCase(type));
     }
     let disabilityProfileTotal = 0;
-    beneficiaries.forEach(b => {
+    donorScopedBeneficiaries.forEach(b => {
         const raw = b.disability_type && b.disability_type.trim() ? b.disability_type.trim() : null;
         if (!raw) return;
         const key = normalizeDisabilityKey(raw);
@@ -496,8 +580,9 @@ export async function fetchProgramReport(): Promise<ProgramReport> {
     const functionalMobilitySnapshot = buildStatusSnapshot('Post Operative Condition', 'functional_mobility_level', DROPDOWNS.Mobility);
     const prosthesisStatusSnapshot = buildStatusSnapshot('Amputation', 'prosthesis_status', DROPDOWNS.Prosthesis);
 
-    // Full, unfiltered detail: every beneficiary against every outcome measure
-    // their condition uses, regardless of what's selected in the Reports UI.
+    // Every (scoped) beneficiary against every outcome measure their condition
+    // uses — full detail when no filters are passed, or just the matching
+    // slice when they are (see initialMap/scopedInitials above).
     const allOutcomeRows: ConsolidatedRow[] = [];
     for (const scale of Object.values(OUTCOME_SCALES)) {
         for (const r of rowsByScale.get(scale.id) || []) {
@@ -533,6 +618,14 @@ export async function fetchProgramReport(): Promise<ProgramReport> {
         'Disability Profile always lists every disability category offered on the Add/Edit Beneficiary form (not the fixed 21-category RPWD Act schedule), so a category with no beneficiaries currently recorded shows 0 (0%) rather than being omitted. It groups beneficiaries.disability_type case/spacing variants of the same category into one row (e.g. "Neuromuscular Painful Condition", "Neuro Muscular Painful Condition" and "neuromuscular painful condition" all count as "Neuromuscular / Chronic Pain Conditions") and relabels a handful of values to match common RPWD Act report wording; anything else is shown under its own real name rather than grouped into "Other". Beneficiaries recorded as "Non-Disabled" or "General Screening" (not a disability category) and those with no disability_type on record are excluded from this table and its percentage base entirely.',
         'Weight Bearing Status, Functional Mobility Level and Prosthesis Status are captured only once, at the initial assessment, and are not re-asked at follow-up — so these three tables show a current snapshot (how many beneficiaries are at each stage today), not improvement over time. A beneficiary with no value on record for a field is not counted anywhere in its table.',
     ];
+
+    if (filters.condition || filters.donor || filters.fromDate || filters.toDate || (filters.search && filters.search.trim())) {
+        notes.push(
+            `This export is scoped to the Export Filters selected: Condition = ${filters.condition || 'All Conditions'}; Donor = ${filters.donor || 'All Donors'}; From Date (Follow-up) = ${filters.fromDate || 'Any'}; To Date (Follow-up) = ${filters.toDate || 'Any'}; Search = ${filters.search?.trim() || 'None'}. ` +
+            'Every section above — Executive Summary, Overall Outcome Analysis, Outcome by Condition, Improvement by Outcome Measure, Pre vs Post (VAS), District-wise Performance, Monthly Trend, Consolidated, and the three Baseline Snapshot tables — is scoped to matching beneficiaries. ' +
+            'Registration Completed (Assessment Completion funnel) and Disability Profile are population-level tables sourced from every registered beneficiary rather than from assessment data, so they reflect only the Donor filter, not Condition/Date Range/Search.'
+        );
+    }
 
     return {
         executiveSummary,

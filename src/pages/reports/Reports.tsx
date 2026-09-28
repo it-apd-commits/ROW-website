@@ -19,6 +19,7 @@ import { Input } from '@/components/common/Input';
 import { Select } from '@/components/common/Select';
 import { getOutcomes, getConditionTotalCount, getDonorOptions, summarize } from '@/services/outcomeEvaluationService';
 import { fetchProgramReport } from '@/services/programReportService';
+import type { ProgramReport } from '@/services/programReportService';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
 import { getAllScales, getScalesByCondition } from '@/config/outcomeScales';
 import type { ScaleConfig } from '@/config/outcomeScales';
@@ -183,30 +184,34 @@ export function ReportsPage() {
 
     const pct = (n: number) => evaluableCount > 0 ? `${((n / evaluableCount) * 100).toFixed(1)}%` : '—';
 
-    // Full, unfiltered program-wide export — unchanged behavior, used when the
-    // Export Filters popup is submitted with every field left blank.
-    const handleExportFull = async () => {
-        setIsExporting(true);
-        try {
+    // Builds and downloads the same rich 3-tab workbook (Summary, Consolidated,
+    // Program Report) for both the full and the filtered export — only the
+    // Summary sheet's filter fields, the Program Report banner, and the
+    // filename differ between the two. `program` is already scoped to
+    // whatever filters were passed into fetchProgramReport() by the caller.
+    const downloadProgramReport = async (program: ProgramReport, meta: { filtered: boolean; filters?: ExportFilters }) => {
         const ExcelJS = (await import('exceljs')).default;
         const workbook = new ExcelJS.Workbook();
 
-        // The export is intentionally unfiltered: it always covers every
-        // beneficiary, every condition, and all-time data, regardless of the
-        // Condition/Scale/Date Range/Search selected on screen — those only
-        // control what's shown in the on-screen table above.
-        const program = await fetchProgramReport();
         const es = program.executiveSummary;
         const evaluableAll = es.improved + es.same + es.deteriorated;
         const pctAll = (n: number) => evaluableAll > 0 ? `${((n / evaluableAll) * 100).toFixed(1)}%` : '—';
 
         const summarySheet = workbook.addWorksheet('Summary');
         summarySheet.columns = [
-            { header: 'Field', key: 'field', width: 30 },
+            { header: 'Field', key: 'field', width: 32 },
             { header: 'Value', key: 'value', width: 30 },
         ];
-        summarySheet.addRow({ field: 'Report', value: 'Outcome Evaluation Report' });
-        summarySheet.addRow({ field: 'Coverage', value: 'All conditions, all scales, all-time' });
+        summarySheet.addRow({ field: 'Report', value: meta.filtered ? 'Outcome Evaluation Report (Filtered)' : 'Outcome Evaluation Report' });
+        if (meta.filtered && meta.filters) {
+            summarySheet.addRow({ field: 'Condition', value: meta.filters.condition || 'All Conditions' });
+            summarySheet.addRow({ field: 'Donor', value: meta.filters.donor || 'All Donors' });
+            summarySheet.addRow({ field: 'From Date (Follow-up)', value: meta.filters.fromDate || 'Any' });
+            summarySheet.addRow({ field: 'To Date (Follow-up)', value: meta.filters.toDate || 'Any' });
+            summarySheet.addRow({ field: 'Search', value: meta.filters.search.trim() || 'None' });
+        } else {
+            summarySheet.addRow({ field: 'Coverage', value: 'All conditions, all scales, all-time' });
+        }
         summarySheet.addRow({ field: 'Exported On', value: new Date().toISOString().split('T')[0] });
         summarySheet.addRow({ field: '', value: '' });
         summarySheet.addRow({ field: 'Total Beneficiaries Assessed', value: es.totalAssessed });
@@ -257,11 +262,13 @@ export function ReportsPage() {
         const cellBorder = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
 
         // Banner
-        const bannerTitle = programSheet.addRow(['Program-Wide Outcome Report']);
+        const bannerTitle = programSheet.addRow([meta.filtered ? 'Program-Wide Outcome Report (Filtered)' : 'Program-Wide Outcome Report']);
         bannerTitle.font = { bold: true, size: 16, color: { argb: 'FF1F2937' } };
         programSheet.mergeCells(bannerTitle.number, 1, bannerTitle.number, SECTION_COLS);
         const bannerSub = programSheet.addRow([
-            `Covers every condition and beneficiary in the system, all-time, independent of the filters on the Reports screen · Generated ${new Date().toISOString().split('T')[0]}`,
+            meta.filtered && meta.filters
+                ? `Scoped to Condition = ${meta.filters.condition || 'All Conditions'}, Donor = ${meta.filters.donor || 'All Donors'}, Date Range = ${meta.filters.fromDate || 'Any'} to ${meta.filters.toDate || 'Any'}, Search = ${meta.filters.search.trim() || 'None'} · Generated ${new Date().toISOString().split('T')[0]}`
+                : `Covers every condition and beneficiary in the system, all-time, independent of the filters on the Reports screen · Generated ${new Date().toISOString().split('T')[0]}`,
         ]);
         bannerSub.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } };
         programSheet.mergeCells(bannerSub.number, 1, bannerSub.number, SECTION_COLS);
@@ -413,9 +420,18 @@ export function ReportsPage() {
         const url = window.URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `ROW_Outcome_Report_Full_${new Date().toISOString().split('T')[0]}.xlsx`;
+        anchor.download = `ROW_Outcome_Report_${meta.filtered ? 'Filtered' : 'Full'}_${new Date().toISOString().split('T')[0]}.xlsx`;
         anchor.click();
         window.URL.revokeObjectURL(url);
+    };
+
+    // Full, unfiltered program-wide export — used when the Export Filters
+    // popup is submitted with every field left blank.
+    const handleExportFull = async () => {
+        setIsExporting(true);
+        try {
+            const program = await fetchProgramReport();
+            await downloadProgramReport(program, { filtered: false });
         } finally {
             setIsExporting(false);
             setShowExportModal(false);
@@ -423,96 +439,20 @@ export function ReportsPage() {
     };
 
     // Scoped export — used when the Export Filters popup is submitted with at
-    // least one filter set. Runs getOutcomes() per relevant scale (instead of
-    // the always-unfiltered fetchProgramReport) so Condition/Date Range/Search
-    // actually narrow what ends up in the file.
+    // least one filter set. Passes the same filters into fetchProgramReport()
+    // so the export gets the same rich, multi-section report as the full
+    // export, just narrowed to the matching slice (see programReportService.ts).
     const handleExportFiltered = async (filters: ExportFilters) => {
         setIsExporting(true);
         try {
-            const ExcelJS = (await import('exceljs')).default;
-            const workbook = new ExcelJS.Workbook();
-
-            const scaleCondition = filters.condition
-                ? (isDisabilityCondition(filters.condition) ? 'Disability' : filters.condition)
-                : null;
-            const disabilityType = filters.condition && isDisabilityCondition(filters.condition) && filters.condition !== 'Disability'
-                ? filters.condition
-                : undefined;
-            const scales = scaleCondition ? getScalesByCondition(scaleCondition) : getAllScales();
-
-            const perScale = await Promise.all(scales.map(scale => getOutcomes({
-                scaleId: scale.id,
+            const program = await fetchProgramReport({
+                condition: filters.condition || undefined,
+                donor: filters.donor || undefined,
                 fromDate: filters.fromDate || undefined,
                 toDate: filters.toDate || undefined,
-                disabilityType,
-                donor: filters.donor || undefined,
-            })));
-
-            let combined = scales.flatMap((scale, i) => perScale[i].map(r => ({ ...r, scaleLabel: scale.label })));
-
-            const searchTerm = filters.search.trim();
-            if (searchTerm) {
-                combined = combined.filter(r => nameMatchesSearch(r.name, searchTerm) || r.patient_id.toLowerCase().includes(searchTerm.toLowerCase()));
-            }
-
-            const counts = summarize(combined);
-            const evaluable = counts.improved + counts.declined + counts.same + counts.needs_referral;
-            const pctOf = (n: number) => evaluable > 0 ? `${((n / evaluable) * 100).toFixed(1)}%` : '—';
-
-            const summarySheet = workbook.addWorksheet('Summary');
-            summarySheet.columns = [
-                { header: 'Field', key: 'field', width: 32 },
-                { header: 'Value', key: 'value', width: 30 },
-            ];
-            summarySheet.addRow({ field: 'Report', value: 'Outcome Evaluation Report (Filtered)' });
-            summarySheet.addRow({ field: 'Condition', value: filters.condition || 'All Conditions' });
-            summarySheet.addRow({ field: 'Donor', value: filters.donor || 'All Donors' });
-            summarySheet.addRow({ field: 'From Date (Follow-up)', value: filters.fromDate || 'Any' });
-            summarySheet.addRow({ field: 'To Date (Follow-up)', value: filters.toDate || 'Any' });
-            summarySheet.addRow({ field: 'Search', value: searchTerm || 'None' });
-            summarySheet.addRow({ field: 'Exported On', value: new Date().toISOString().split('T')[0] });
-            summarySheet.addRow({ field: '', value: '' });
-            summarySheet.addRow({ field: 'Total Records', value: counts.total });
-            summarySheet.addRow({ field: 'Improved', value: `${counts.improved} (${pctOf(counts.improved)})` });
-            summarySheet.addRow({ field: 'Declined', value: `${counts.declined} (${pctOf(counts.declined)})` });
-            summarySheet.addRow({ field: 'Same', value: `${counts.same} (${pctOf(counts.same)})` });
-            summarySheet.addRow({ field: 'Needs Referral', value: `${counts.needs_referral} (${pctOf(counts.needs_referral)})` });
-            summarySheet.addRow({ field: 'Baseline Only', value: counts.baseline_only });
-
-            const dataSheet = workbook.addWorksheet('Filtered Report');
-            dataSheet.columns = [
-                { header: 'Patient ID', key: 'patient_id', width: 24 },
-                { header: 'Name', key: 'name', width: 25 },
-                { header: 'Scale', key: 'scale', width: 28 },
-                { header: 'Baseline Value', key: 'baseline_value', width: 18 },
-                { header: 'Baseline Date', key: 'baseline_date', width: 16 },
-                { header: 'Endline Value', key: 'current_value', width: 18 },
-                { header: 'Endline Date', key: 'current_date', width: 16 },
-                { header: 'Status', key: 'status', width: 18 },
-                { header: 'Follow-up Number', key: 'follow_up_count', width: 18 },
-            ];
-            combined.forEach(r => {
-                dataSheet.addRow({
-                    patient_id: r.patient_id,
-                    name: r.name,
-                    scale: r.scaleLabel,
-                    baseline_value: formatValue(r.baseline_value),
-                    baseline_date: formatDate(r.baseline_date),
-                    current_value: formatValue(r.current_value),
-                    current_date: formatDate(r.current_date),
-                    status: STATUS_CONFIG[r.status]?.label || r.status,
-                    follow_up_count: r.follow_up_count,
-                });
+                search: filters.search || undefined,
             });
-
-            const buffer = await workbook.xlsx.writeBuffer();
-            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            const url = window.URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `ROW_Outcome_Report_Filtered_${new Date().toISOString().split('T')[0]}.xlsx`;
-            anchor.click();
-            window.URL.revokeObjectURL(url);
+            await downloadProgramReport(program, { filtered: true, filters });
         } finally {
             setIsExporting(false);
             setShowExportModal(false);
@@ -813,13 +753,15 @@ export function ReportsPage() {
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Excel Export</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
                         Export Excel opens a filter popup independent of the Condition/Scale/Date Range/Search/Donor
-                        selected above. Leave every field blank there to get the full program-wide report: 3 tabs —
-                        Summary (program-wide totals), Consolidated (every beneficiary against every outcome measure
-                        their condition uses), and Program Report — Executive Summary, Overall Outcome Analysis,
-                        Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District Performance,
-                        Monthly Trend, Assessment Completion, Disability Profile, and Notes &amp; Methodology — stacked
-                        as labeled, color-coded sections. Set a Condition, Donor, Date Range, and/or Search there instead
-                        to get a 2-tab file (Summary + Filtered Report) scoped to just that slice.
+                        selected above. Either way you get the same 3-tab report — Summary, Consolidated (every
+                        beneficiary against every outcome measure their condition uses), and Program Report —
+                        Executive Summary, Overall Outcome Analysis, Outcome by Condition, Improvement by Measure,
+                        Pre vs Post (VAS), District Performance, Monthly Trend, Assessment Completion, Disability
+                        Profile, and Notes &amp; Methodology — stacked as labeled, color-coded sections. Leave every
+                        field in the popup blank for the full program-wide report; set a Condition, Donor, Date Range,
+                        and/or Search there to scope every section to just that slice instead (Registration Completed
+                        and Disability Profile only follow the Donor filter, since they're drawn from every registered
+                        beneficiary rather than from assessment data).
                     </p>
                 </Card>
             </div>
