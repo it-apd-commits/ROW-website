@@ -411,6 +411,12 @@ export function ReportsPage() {
             program.prosthesisStatusSnapshot.map(r => [r.category, r.count, formatCountPct(r.count, r.pct)]));
 
         addSection(
+            '13. Referral Reasons',
+            'Why beneficiaries were referred for a service or assessment.',
+            ['Reason', 'Count'],
+            program.referralReasons.map(r => [r.reason, r.count]));
+
+        addSection(
             'Notes & Methodology',
             'How to read the tables above: definitions, exclusions, and caveats behind each section.',
             [], program.notes.map(n => [n]));

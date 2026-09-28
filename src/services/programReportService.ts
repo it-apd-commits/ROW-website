@@ -83,6 +83,8 @@ interface InitialRecord {
     patient_name: string;
     primary_condition: string | null;
     phone?: string | null;
+    service_referral_needed?: string | null;
+    referral_reason?: string | null;
 }
 
 interface BaselineRecord {
@@ -195,6 +197,15 @@ export interface DisabilityProfileRow {
     pct: number;
 }
 
+// Why beneficiaries flagged with service_referral_needed at their initial
+// assessment were referred — "Unspecified" covers a flagged referral with no
+// reason on record, distinct from beneficiaries with no referral at all
+// (who aren't counted here).
+export interface ReferralReasonRow {
+    reason: string;
+    count: number;
+}
+
 // Baseline-only snapshot for fields that are captured once at the initial
 // assessment and never re-asked at follow-up — there's no "after" value to
 // compare against, so these show current distribution only, not improvement.
@@ -232,6 +243,7 @@ export interface ProgramReport {
     weightBearingSnapshot: StatusSnapshotRow[];
     functionalMobilitySnapshot: StatusSnapshotRow[];
     prosthesisStatusSnapshot: StatusSnapshotRow[];
+    referralReasons: ReferralReasonRow[];
     allOutcomeRows: ConsolidatedRow[];
     notes: string[];
 }
@@ -262,7 +274,7 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
     const [initials, clinicals, followUps, beneficiaries, serviceEntries] = await Promise.all([
         fetchAllRows<InitialRecord>(() => supabase
             .from('initial_assessment')
-            .select('patient_id, patient_name, primary_condition, phone')),
+            .select('patient_id, patient_name, primary_condition, phone, service_referral_needed, referral_reason')),
         fetchAllRows<BaselineRecord>(() => supabase
             .from('clinical_assessment')
             .select('*')
@@ -580,6 +592,21 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
     const functionalMobilitySnapshot = buildStatusSnapshot('Post Operative Condition', 'functional_mobility_level', DROPDOWNS.Mobility);
     const prosthesisStatusSnapshot = buildStatusSnapshot('Amputation', 'prosthesis_status', DROPDOWNS.Prosthesis);
 
+    // Why beneficiaries were referred for a service or assessment — only
+    // beneficiaries flagged service_referral_needed at their initial
+    // assessment are counted; "Unspecified" means flagged but no reason was
+    // recorded. Sourced from scopedInitials so Condition/Donor/Search scope
+    // it the same way as the rest of the assessment-driven sections.
+    const referralReasonCounts = new Map<string, number>();
+    scopedInitials.forEach(i => {
+        if (!i.service_referral_needed) return;
+        const reason = i.referral_reason || 'Unspecified';
+        referralReasonCounts.set(reason, (referralReasonCounts.get(reason) || 0) + 1);
+    });
+    const referralReasons: ReferralReasonRow[] = Array.from(referralReasonCounts.entries())
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count);
+
     // Every (scoped) beneficiary against every outcome measure their condition
     // uses — full detail when no filters are passed, or just the matching
     // slice when they are (see initialMap/scopedInitials above).
@@ -617,12 +644,13 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         '"Baseline Only" in Outcome by Primary Condition and Improvement by Outcome Measure counts beneficiaries who have a baseline recorded but no follow-up yet, so no Improved/Same/Worse can be calculated for them. This is real recorded data, not missing data — it will move into Evaluable Count once a follow-up is entered for them.',
         'Disability Profile always lists every disability category offered on the Add/Edit Beneficiary form (not the fixed 21-category RPWD Act schedule), so a category with no beneficiaries currently recorded shows 0 (0%) rather than being omitted. It groups beneficiaries.disability_type case/spacing variants of the same category into one row (e.g. "Neuromuscular Painful Condition", "Neuro Muscular Painful Condition" and "neuromuscular painful condition" all count as "Neuromuscular / Chronic Pain Conditions") and relabels a handful of values to match common RPWD Act report wording; anything else is shown under its own real name rather than grouped into "Other". Beneficiaries recorded as "Non-Disabled" or "General Screening" (not a disability category) and those with no disability_type on record are excluded from this table and its percentage base entirely.',
         'Weight Bearing Status, Functional Mobility Level and Prosthesis Status are captured only once, at the initial assessment, and are not re-asked at follow-up — so these three tables show a current snapshot (how many beneficiaries are at each stage today), not improvement over time. A beneficiary with no value on record for a field is not counted anywhere in its table.',
+        'Referral Reasons only counts beneficiaries flagged as needing a service or assessment referral at their initial assessment. "Unspecified" means a referral was flagged but no reason was recorded — it does not include beneficiaries with no referral at all.',
     ];
 
     if (filters.condition || filters.donor || filters.fromDate || filters.toDate || (filters.search && filters.search.trim())) {
         notes.push(
             `This export is scoped to the Export Filters selected: Condition = ${filters.condition || 'All Conditions'}; Donor = ${filters.donor || 'All Donors'}; From Date (Follow-up) = ${filters.fromDate || 'Any'}; To Date (Follow-up) = ${filters.toDate || 'Any'}; Search = ${filters.search?.trim() || 'None'}. ` +
-            'Every section above — Executive Summary, Overall Outcome Analysis, Outcome by Condition, Improvement by Outcome Measure, Pre vs Post (VAS), District-wise Performance, Monthly Trend, Consolidated, and the three Baseline Snapshot tables — is scoped to matching beneficiaries. ' +
+            'Every section above — Executive Summary, Overall Outcome Analysis, Outcome by Condition, Improvement by Outcome Measure, Pre vs Post (VAS), District-wise Performance, Monthly Trend, Consolidated, the three Baseline Snapshot tables, and Referral Reasons — is scoped to matching beneficiaries (Referral Reasons follows Condition/Donor/Search only, not the Date Range, since it is drawn from the initial assessment rather than a follow-up visit). ' +
             'Registration Completed (Assessment Completion funnel) and Disability Profile are population-level tables sourced from every registered beneficiary rather than from assessment data, so they reflect only the Donor filter, not Condition/Date Range/Search.'
         );
     }
@@ -640,6 +668,7 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         weightBearingSnapshot,
         functionalMobilitySnapshot,
         prosthesisStatusSnapshot,
+        referralReasons,
         allOutcomeRows,
         notes,
     };
