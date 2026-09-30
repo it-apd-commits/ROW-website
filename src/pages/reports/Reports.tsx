@@ -205,6 +205,7 @@ export function ReportsPage() {
         summarySheet.addRow({ field: 'Report', value: meta.filtered ? 'Outcome Evaluation Report (Filtered)' : 'Outcome Evaluation Report' });
         if (meta.filtered && meta.filters) {
             summarySheet.addRow({ field: 'Condition', value: meta.filters.condition || 'All Conditions' });
+            summarySheet.addRow({ field: 'Assessment Scale', value: meta.filters.scaleId ? (ALL_SCALES.find(s => s.id === meta.filters!.scaleId)?.label || meta.filters.scaleId) : 'All Scales' });
             summarySheet.addRow({ field: 'Donor', value: meta.filters.donor || 'All Donors' });
             summarySheet.addRow({ field: 'From Date (Follow-up)', value: meta.filters.fromDate || 'Any' });
             summarySheet.addRow({ field: 'To Date (Follow-up)', value: meta.filters.toDate || 'Any' });
@@ -267,7 +268,7 @@ export function ReportsPage() {
         programSheet.mergeCells(bannerTitle.number, 1, bannerTitle.number, SECTION_COLS);
         const bannerSub = programSheet.addRow([
             meta.filtered && meta.filters
-                ? `Scoped to Condition = ${meta.filters.condition || 'All Conditions'}, Donor = ${meta.filters.donor || 'All Donors'}, Date Range = ${meta.filters.fromDate || 'Any'} to ${meta.filters.toDate || 'Any'}, Search = ${meta.filters.search.trim() || 'None'} · Generated ${new Date().toISOString().split('T')[0]}`
+                ? `Scoped to Condition = ${meta.filters.condition || 'All Conditions'}, Assessment Scale = ${meta.filters.scaleId ? (ALL_SCALES.find(s => s.id === meta.filters!.scaleId)?.label || meta.filters.scaleId) : 'All Scales'}, Donor = ${meta.filters.donor || 'All Donors'}, Date Range = ${meta.filters.fromDate || 'Any'} to ${meta.filters.toDate || 'Any'}, Search = ${meta.filters.search.trim() || 'None'} · Generated ${new Date().toISOString().split('T')[0]}`
                 : `Covers every condition and beneficiary in the system, all-time, independent of the filters on the Reports screen · Generated ${new Date().toISOString().split('T')[0]}`,
         ]);
         bannerSub.font = { italic: true, size: 10, color: { argb: 'FF6B7280' } };
@@ -453,6 +454,7 @@ export function ReportsPage() {
         try {
             const program = await fetchProgramReport({
                 condition: filters.condition || undefined,
+                scaleId: filters.scaleId || undefined,
                 donor: filters.donor || undefined,
                 fromDate: filters.fromDate || undefined,
                 toDate: filters.toDate || undefined,
@@ -466,7 +468,7 @@ export function ReportsPage() {
     };
 
     const handleExportSubmit = (filters: ExportFilters) => {
-        const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim() || filters.donor);
+        const hasFilters = Boolean(filters.condition || filters.scaleId || filters.fromDate || filters.toDate || filters.search.trim() || filters.donor);
         if (hasFilters) {
             handleExportFiltered(filters);
         } else {
@@ -758,16 +760,18 @@ export function ReportsPage() {
                 <Card className="p-4 bg-blue-50/30 border-blue-100">
                     <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Excel Export</h4>
                     <p className="text-[11px] text-blue-500 leading-relaxed">
-                        Export Excel opens a filter popup independent of the Condition/Scale/Date Range/Search/Donor
-                        selected above. Either way you get the same 3-tab report — Summary, Consolidated (every
-                        beneficiary against every outcome measure their condition uses), and Program Report —
-                        Executive Summary, Overall Outcome Analysis, Outcome by Condition, Improvement by Measure,
-                        Pre vs Post (VAS), District Performance, Monthly Trend, Assessment Completion, Disability
-                        Profile, and Notes &amp; Methodology — stacked as labeled, color-coded sections. Leave every
-                        field in the popup blank for the full program-wide report; set a Condition, Donor, Date Range,
-                        and/or Search there to scope every section to just that slice instead (Registration Completed
-                        and Disability Profile only follow the Donor filter, since they're drawn from every registered
-                        beneficiary rather than from assessment data).
+                        Export Excel opens its own filter popup (Condition, Assessment Scale, Donor, Date Range, Search)
+                        independent of the Condition/Scale/Donor/Date Range selected above. Either way you get the
+                        same 3-tab report — Summary, Consolidated (every beneficiary against every outcome measure
+                        their condition uses), and Program Report — Executive Summary, Overall Outcome Analysis,
+                        Outcome by Condition, Improvement by Measure, Pre vs Post (VAS), District Performance,
+                        Monthly Trend, Assessment Completion, Disability Profile, Referral Reasons, and Notes &amp;
+                        Methodology — stacked as labeled, color-coded sections. Leave every field in the popup blank
+                        for the full program-wide report; set a Condition, Donor, Date Range, and/or Search there to
+                        scope every section to just that slice (Registration Completed and Disability Profile only
+                        follow the Donor filter, since they're drawn from every registered beneficiary rather than
+                        from assessment data). Assessment Scale only narrows Improvement by Measure and Consolidated
+                        to a single measure — every other section still uses each condition's primary measure.
                     </p>
                 </Card>
             </div>

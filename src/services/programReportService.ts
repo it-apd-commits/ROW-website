@@ -19,6 +19,7 @@ import type { OutcomeStatus } from '@/types/outcomeEvaluation';
 // left undefined reproduces the original unfiltered report exactly.
 export interface ProgramReportFilters {
     condition?: string;
+    scaleId?: string;
     donor?: string;
     fromDate?: string;
     toDate?: string;
@@ -468,9 +469,13 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         note: 'No outcome scale configured for this condition yet',
     });
 
+    // Assessment Scale (filters.scaleId) only narrows this table and Consolidated
+    // below — Executive Summary/Outcome Analysis/Outcome by Condition/District/
+    // Monthly Trend stay on each condition's primary measure regardless.
     const improvementByMeasure: MeasureImprovementRow[] = [];
     for (const condition of getConditions()) {
         for (const scale of getScalesByCondition(condition)) {
+            if (filters.scaleId && scale.id !== filters.scaleId) continue;
             const rows = rowsByScale.get(scale.id) || [];
             const imp = rows.filter(r => r.status === 'improved').length;
             const total = rows.filter(r => EVALUABLE.includes(r.status)).length;
@@ -609,9 +614,13 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
 
     // Every (scoped) beneficiary against every outcome measure their condition
     // uses — full detail when no filters are passed, or just the matching
-    // slice when they are (see initialMap/scopedInitials above).
+    // slice when they are (see initialMap/scopedInitials above). filters.scaleId
+    // narrows this to a single measure, same as Improvement by Outcome Measure.
     const allOutcomeRows: ConsolidatedRow[] = [];
-    for (const scale of Object.values(OUTCOME_SCALES)) {
+    const consolidatedScales = filters.scaleId
+        ? Object.values(OUTCOME_SCALES).filter(s => s.id === filters.scaleId)
+        : Object.values(OUTCOME_SCALES);
+    for (const scale of consolidatedScales) {
         for (const r of rowsByScale.get(scale.id) || []) {
             const initial = initialMap.get(r.patient_id);
             allOutcomeRows.push({
@@ -647,11 +656,12 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         'Referral Reasons only counts beneficiaries flagged as needing a service or assessment referral at their initial assessment. "Unspecified" means a referral was flagged but no reason was recorded — it does not include beneficiaries with no referral at all.',
     ];
 
-    if (filters.condition || filters.donor || filters.fromDate || filters.toDate || (filters.search && filters.search.trim())) {
+    if (filters.condition || filters.scaleId || filters.donor || filters.fromDate || filters.toDate || (filters.search && filters.search.trim())) {
         notes.push(
-            `This export is scoped to the Export Filters selected: Condition = ${filters.condition || 'All Conditions'}; Donor = ${filters.donor || 'All Donors'}; From Date (Follow-up) = ${filters.fromDate || 'Any'}; To Date (Follow-up) = ${filters.toDate || 'Any'}; Search = ${filters.search?.trim() || 'None'}. ` +
-            'Every section above — Executive Summary, Overall Outcome Analysis, Outcome by Condition, Improvement by Outcome Measure, Pre vs Post (VAS), District-wise Performance, Monthly Trend, Consolidated, the three Baseline Snapshot tables, and Referral Reasons — is scoped to matching beneficiaries (Referral Reasons follows Condition/Donor/Search only, not the Date Range, since it is drawn from the initial assessment rather than a follow-up visit). ' +
-            'Registration Completed (Assessment Completion funnel) and Disability Profile are population-level tables sourced from every registered beneficiary rather than from assessment data, so they reflect only the Donor filter, not Condition/Date Range/Search.'
+            `This export is scoped to the Export Filters selected: Condition = ${filters.condition || 'All Conditions'}; Assessment Scale = ${filters.scaleId ? (OUTCOME_SCALES[filters.scaleId]?.label || filters.scaleId) : 'All Scales'}; Donor = ${filters.donor || 'All Donors'}; From Date (Follow-up) = ${filters.fromDate || 'Any'}; To Date (Follow-up) = ${filters.toDate || 'Any'}; Search = ${filters.search?.trim() || 'None'}. ` +
+            'Executive Summary, Overall Outcome Analysis, Outcome by Condition, Pre vs Post (VAS), District-wise Performance, Monthly Trend, the three Baseline Snapshot tables, and Referral Reasons are scoped to matching beneficiaries (Referral Reasons follows Condition/Donor/Search only, not the Date Range, since it is drawn from the initial assessment rather than a follow-up visit), but always use each condition\'s primary outcome measure, unaffected by the Assessment Scale filter. ' +
+            'Improvement by Outcome Measure and Consolidated are the only two sections narrowed by the Assessment Scale filter, in addition to Condition/Donor/Date Range/Search. ' +
+            'Registration Completed (Assessment Completion funnel) and Disability Profile are population-level tables sourced from every registered beneficiary rather than from assessment data, so they reflect only the Donor filter, not Condition/Assessment Scale/Date Range/Search.'
         );
     }
 

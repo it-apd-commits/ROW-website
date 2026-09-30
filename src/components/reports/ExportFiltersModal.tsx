@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { X, Download, Loader2, ChevronDown, Info } from 'lucide-react';
 import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
+import { getAllScales, getScalesByCondition } from '@/config/outcomeScales';
+import { isDisabilityCondition } from '@/utils/assessmentLogic';
 
 export interface ExportFilters {
     condition: string;
+    scaleId: string;
     fromDate: string;
     toDate: string;
     search: string;
@@ -21,14 +24,23 @@ interface ExportFiltersModalProps {
     onExport: (filters: ExportFilters) => void;
 }
 
-const EMPTY_FILTERS: ExportFilters = { condition: '', fromDate: '', toDate: '', search: '', donor: '' };
+const EMPTY_FILTERS: ExportFilters = { condition: '', scaleId: '', fromDate: '', toDate: '', search: '', donor: '' };
 
 export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, onClose, onExport }: ExportFiltersModalProps) {
     const [filters, setFilters] = useState<ExportFilters>(EMPTY_FILTERS);
 
+    // Scale choices depend on the Condition picked here — mirrors the
+    // on-screen Filters card, but kept independent of it (this popup doesn't
+    // inherit whatever Condition/Scale is selected on screen).
+    const scaleOptions = useMemo(() => {
+        if (!filters.condition) return getAllScales();
+        const scaleCondition = isDisabilityCondition(filters.condition) ? 'Disability' : filters.condition;
+        return getScalesByCondition(scaleCondition);
+    }, [filters.condition]);
+
     if (!isOpen) return null;
 
-    const hasFilters = Boolean(filters.condition || filters.fromDate || filters.toDate || filters.search.trim() || filters.donor);
+    const hasFilters = Boolean(filters.condition || filters.scaleId || filters.fromDate || filters.toDate || filters.search.trim() || filters.donor);
 
     const handleClose = () => {
         setFilters(EMPTY_FILTERS);
@@ -57,7 +69,7 @@ export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, on
                             <select
                                 className="w-full px-3 py-2.5 border rounded-lg appearance-none bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary border-gray-300"
                                 value={filters.condition}
-                                onChange={(e) => setFilters(f => ({ ...f, condition: e.target.value }))}
+                                onChange={(e) => setFilters(f => ({ ...f, condition: e.target.value, scaleId: '' }))}
                             >
                                 <option value="">All Conditions</option>
                                 {conditions.map(c => (
@@ -66,6 +78,24 @@ export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, on
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                         </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 w-full">
+                        <label className="text-sm font-medium text-text-main">Assessment Scale</label>
+                        <div className="relative">
+                            <select
+                                className="w-full px-3 py-2.5 border rounded-lg appearance-none bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary border-gray-300"
+                                value={filters.scaleId}
+                                onChange={(e) => setFilters(f => ({ ...f, scaleId: e.target.value }))}
+                            >
+                                <option value="">All Scales</option>
+                                {scaleOptions.map(s => (
+                                    <option key={s.id} value={s.id}>{s.label}</option>
+                                ))}
+                            </select>
+                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                        </div>
+                        <p className="text-xs text-text-muted italic">Only narrows the Consolidated and Improvement by Outcome Measure tables — Executive Summary and Outcome Analysis still use each condition's primary measure.</p>
                     </div>
 
                     <div className="flex flex-col gap-1 w-full">
