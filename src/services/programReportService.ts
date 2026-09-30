@@ -11,6 +11,7 @@ import type { ScaleConfig } from '@/config/outcomeScales';
 import { DISABILITY_TYPES } from '@/constants/beneficiaryDropdowns';
 import { DROPDOWNS, FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
 import { nameMatchesSearch } from '@/utils/fuzzySearch';
+import { isDisabilityCondition } from '@/utils/assessmentLogic';
 import type { OutcomeStatus } from '@/types/outcomeEvaluation';
 
 // Optional scoping for fetchProgramReport — mirrors the Export Filters popup
@@ -293,11 +294,43 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         fetchAllRows<{ file_number: string | null }>(() => supabase.from('service_entries').select('file_number')),
     ]);
 
+    // Keep every baseline row per patient (already ascending by created_at) so each
+    // scale can pick the earliest row matching its own condition — mirrors getOutcomes().
+    // Built before any Condition scoping below, since Condition matching itself
+    // depends on it.
+    const baselinesByPatient = new Map<string, BaselineRecord[]>();
+    clinicals.forEach(c => {
+        const list = baselinesByPatient.get(c.patient_id);
+        if (list) list.push(c); else baselinesByPatient.set(c.patient_id, [c]);
+    });
+
+    // A patient's initial_assessment.primary_condition can diverge from their
+    // clinical_assessment.condition (see outcomeEvaluationService.ts — clinical
+    // rows for a disability patient may be saved under a specific sub-type
+    // rather than the literal 'Disability'), so the app's real "Condition"
+    // semantics (as used by getOutcomes/getConditionTotalCount) are: does this
+    // patient have a baseline whose condition/disability_type matches, not
+    // does their initial assessment's primary_condition field match. Filtering
+    // on primary_condition directly would silently drop matching patients.
+    const matchesConditionFilter = (patientId: string): boolean => {
+        if (!filters.condition) return true;
+        const list = baselinesByPatient.get(patientId);
+        if (!list) return false;
+        if (isDisabilityCondition(filters.condition)) {
+            return list.some(b => {
+                if (!b.condition || !DISABILITY_CONDITION_VALUES.includes(b.condition)) return false;
+                if (filters.condition === 'Disability') return true;
+                return b.condition === filters.condition || (b.disability_type as string | null) === filters.condition;
+            });
+        }
+        return list.some(b => b.condition === filters.condition);
+    };
+
     // Condition/Donor/Search narrow the assessed-patient population that every
     // outcome-driven section below is built from (they all key off initialMap).
     let scopedInitials = initials;
     if (filters.condition) {
-        scopedInitials = scopedInitials.filter(i => i.primary_condition === filters.condition);
+        scopedInitials = scopedInitials.filter(i => matchesConditionFilter(i.patient_id));
     }
     if (filters.donor) {
         const donorByName = new Map<string, string>();
@@ -325,13 +358,11 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
     const initialMap = new Map<string, InitialRecord>();
     scopedInitials.forEach(i => initialMap.set(i.patient_id, i));
 
-    // Keep every baseline row per patient (already ascending by created_at) so each
-    // scale can pick the earliest row matching its own condition — mirrors getOutcomes().
-    const baselinesByPatient = new Map<string, BaselineRecord[]>();
-    clinicals.forEach(c => {
-        const list = baselinesByPatient.get(c.patient_id);
-        if (list) list.push(c); else baselinesByPatient.set(c.patient_id, [c]);
-    });
+    // Which base conditions (scale.condition values, e.g. 'Disability') participate
+    // in the condition-driven sections below. No Condition filter -> every condition.
+    const targetConditions = filters.condition
+        ? getConditions().filter(c => c === (isDisabilityCondition(filters.condition!) ? 'Disability' : filters.condition))
+        : getConditions();
 
     // Latest follow-up per patient (all-time), regardless of its own condition
     // field — matches the single-scale export's behavior.
@@ -404,7 +435,7 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
 
     // Pool each condition's single primary measure into one status-per-beneficiary list.
     const primaryStatusRows: ScaleOutcomeRow[] = [];
-    for (const condition of getConditions()) {
+    for (const condition of targetConditions) {
         const primaryScaleId = PRIMARY_SCALE_BY_CONDITION[condition];
         if (!primaryScaleId) continue;
         primaryStatusRows.push(...(rowsByScale.get(primaryScaleId) || []));
@@ -437,7 +468,7 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         { outcome: 'Deteriorated', count: declined, pct: pct(declined, evaluable) },
     ];
 
-    const outcomeByCondition: ConditionOutcomeRow[] = getConditions().map(condition => {
+    const outcomeByCondition: ConditionOutcomeRow[] = targetConditions.map(condition => {
         const primaryScaleId = PRIMARY_SCALE_BY_CONDITION[condition];
         const rows = primaryScaleId ? (rowsByScale.get(primaryScaleId) || []) : [];
         const imp = rows.filter(r => r.status === 'improved').length;
@@ -454,26 +485,31 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
             baselineOnlyCount: baselineOnly,
         };
     });
-    // No outcome scale exists for Post-Op, so it's never part of rowsByScale —
-    // count beneficiaries with a baseline recorded directly off clinical_assessment.
-    const postOpBaselineCount = Array.from(initialMap.keys()).filter(patientId =>
-        baselinesByPatient.get(patientId)?.some(b => b.condition === 'Post Operative Condition')
-    ).length;
-    outcomeByCondition.push({
-        condition: 'Post Operative',
-        improvedPct: null,
-        samePct: null,
-        worsePct: null,
-        evaluableCount: 0,
-        baselineOnlyCount: postOpBaselineCount,
-        note: 'No outcome scale configured for this condition yet',
-    });
+    // No outcome scale exists for Post-Op, so it's never part of rowsByScale/
+    // targetConditions (getConditions() only covers scale.condition values) —
+    // count beneficiaries with a baseline recorded directly off clinical_assessment,
+    // and only include the row at all when no Condition filter is set or it's
+    // explicitly scoped to Post Operative Condition.
+    if (!filters.condition || filters.condition === 'Post Operative Condition') {
+        const postOpBaselineCount = Array.from(initialMap.keys()).filter(patientId =>
+            baselinesByPatient.get(patientId)?.some(b => b.condition === 'Post Operative Condition')
+        ).length;
+        outcomeByCondition.push({
+            condition: 'Post Operative',
+            improvedPct: null,
+            samePct: null,
+            worsePct: null,
+            evaluableCount: 0,
+            baselineOnlyCount: postOpBaselineCount,
+            note: 'No outcome scale configured for this condition yet',
+        });
+    }
 
     // Assessment Scale (filters.scaleId) only narrows this table and Consolidated
     // below — Executive Summary/Outcome Analysis/Outcome by Condition/District/
     // Monthly Trend stay on each condition's primary measure regardless.
     const improvementByMeasure: MeasureImprovementRow[] = [];
-    for (const condition of getConditions()) {
+    for (const condition of targetConditions) {
         for (const scale of getScalesByCondition(condition)) {
             if (filters.scaleId && scale.id !== filters.scaleId) continue;
             const rows = rowsByScale.get(scale.id) || [];
@@ -491,7 +527,7 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
         }
     }
 
-    const vasRows = rowsByScale.get('vas') || [];
+    const vasRows = targetConditions.includes('Neuro Muscular Painful Condition') ? (rowsByScale.get('vas') || []) : [];
     const bandOrder = ['Severe', 'Moderate', 'Mild', 'No Pain'];
     const preCounts: Record<string, number> = { Severe: 0, Moderate: 0, Mild: 0, 'No Pain': 0 };
     const postCounts: Record<string, number> = { Severe: 0, Moderate: 0, Mild: 0, 'No Pain': 0 };
@@ -617,9 +653,8 @@ export async function fetchProgramReport(filters: ProgramReportFilters = {}): Pr
     // slice when they are (see initialMap/scopedInitials above). filters.scaleId
     // narrows this to a single measure, same as Improvement by Outcome Measure.
     const allOutcomeRows: ConsolidatedRow[] = [];
-    const consolidatedScales = filters.scaleId
-        ? Object.values(OUTCOME_SCALES).filter(s => s.id === filters.scaleId)
-        : Object.values(OUTCOME_SCALES);
+    const consolidatedScales = Object.values(OUTCOME_SCALES).filter(s =>
+        (!filters.scaleId || s.id === filters.scaleId) && targetConditions.includes(s.condition));
     for (const scale of consolidatedScales) {
         for (const r of rowsByScale.get(scale.id) || []) {
             const initial = initialMap.get(r.patient_id);
