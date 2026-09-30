@@ -5,6 +5,15 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { getAllScales, getScalesByCondition } from '@/config/outcomeScales';
 import { isDisabilityCondition } from '@/utils/assessmentLogic';
+import { FIM_LOCOMOTION_ITEMS, FIM_MOBILITY_ITEMS } from '@/constants/assessmentDropdowns';
+
+// Mirrors the on-screen Filters card: Disability's scales split into
+// Locomotion/Mobility, so picking a Disability condition here needs the same
+// FIM Category selector to narrow the Assessment Scale list accordingly.
+const FIM_CATEGORIES = ['Locomotion', 'Mobility'] as const;
+type FimCategory = typeof FIM_CATEGORIES[number];
+const FIM_LOCOMOTION_KEYS: string[] = FIM_LOCOMOTION_ITEMS.map(i => i.key);
+const FIM_MOBILITY_KEYS: string[] = FIM_MOBILITY_ITEMS.map(i => i.key);
 
 export interface ExportFilters {
     condition: string;
@@ -28,15 +37,22 @@ const EMPTY_FILTERS: ExportFilters = { condition: '', scaleId: '', fromDate: '',
 
 export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, onClose, onExport }: ExportFiltersModalProps) {
     const [filters, setFilters] = useState<ExportFilters>(EMPTY_FILTERS);
+    const [fimCategory, setFimCategory] = useState<FimCategory>('Locomotion');
 
-    // Scale choices depend on the Condition picked here — mirrors the
-    // on-screen Filters card, but kept independent of it (this popup doesn't
-    // inherit whatever Condition/Scale is selected on screen).
+    const isDisability = isDisabilityCondition(filters.condition);
+
+    // Scale choices depend on the Condition (and, for Disability, FIM
+    // Category) picked here — mirrors the on-screen Filters card, but kept
+    // independent of it (this popup doesn't inherit whatever Condition/Scale
+    // is selected on screen).
     const scaleOptions = useMemo(() => {
         if (!filters.condition) return getAllScales();
-        const scaleCondition = isDisabilityCondition(filters.condition) ? 'Disability' : filters.condition;
-        return getScalesByCondition(scaleCondition);
-    }, [filters.condition]);
+        if (isDisability) {
+            return getScalesByCondition('Disability').filter(s =>
+                (fimCategory === 'Locomotion' ? FIM_LOCOMOTION_KEYS : FIM_MOBILITY_KEYS).includes(s.id));
+        }
+        return getScalesByCondition(filters.condition);
+    }, [filters.condition, isDisability, fimCategory]);
 
     if (!isOpen) return null;
 
@@ -44,6 +60,7 @@ export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, on
 
     const handleClose = () => {
         setFilters(EMPTY_FILTERS);
+        setFimCategory('Locomotion');
         onClose();
     };
 
@@ -79,6 +96,24 @@ export function ExportFiltersModal({ isOpen, isExporting, conditions, donors, on
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                         </div>
                     </div>
+
+                    {isDisability && (
+                        <div className="flex flex-col gap-1 w-full">
+                            <label className="text-sm font-medium text-text-main">FIM Category</label>
+                            <div className="relative">
+                                <select
+                                    className="w-full px-3 py-2.5 border rounded-lg appearance-none bg-surface focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary border-gray-300"
+                                    value={fimCategory}
+                                    onChange={(e) => { setFimCategory(e.target.value as FimCategory); setFilters(f => ({ ...f, scaleId: '' })); }}
+                                >
+                                    {FIM_CATEGORIES.map(c => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="flex flex-col gap-1 w-full">
                         <label className="text-sm font-medium text-text-main">Assessment Scale</label>
