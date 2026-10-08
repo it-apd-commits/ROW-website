@@ -276,7 +276,7 @@ export function ReportsPage() {
         programSheet.addRow([]);
 
         type CellValue = string | number;
-        const addSection = (title: string, description: string, headers: string[], dataRows: CellValue[][]) => {
+        const addSection = (title: string, description: string, headers: string[], dataRows: CellValue[][], boldLastRow = false) => {
             const tableCols = Math.max(headers.length, dataRows[0]?.length || 1, 1);
 
             const titleRow = programSheet.addRow([title]);
@@ -314,11 +314,17 @@ export function ReportsPage() {
                     programSheet.mergeCells(row.number, 1, row.number, SECTION_COLS);
                     return;
                 }
-                const banded = i % 2 === 1;
+                const isTotalRow = boldLastRow && i === dataRows.length - 1;
+                const banded = !isTotalRow && i % 2 === 1;
                 for (let col = 1; col <= tableCols; col++) {
                     const cell = row.getCell(col);
                     if (banded) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
-                    cell.border = cellBorder;
+                    if (isTotalRow) {
+                        cell.font = { bold: true };
+                        cell.border = { ...cellBorder, top: { style: 'medium' as const, color: { argb: BORDER_ARGB } } };
+                    } else {
+                        cell.border = cellBorder;
+                    }
                     const header = headers[col - 1];
                     if (col === 1 || header === 'Note') {
                         cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: header === 'Note' };
@@ -415,7 +421,11 @@ export function ReportsPage() {
             '13. Referral Reasons',
             'Why beneficiaries were referred for a service or assessment.',
             ['Reason', 'Count'],
-            program.referralReasons.map(r => [r.reason, r.count]));
+            [
+                ...program.referralReasons.map(r => [r.reason, r.count]),
+                ['Total', program.referralReasons.reduce((sum, r) => sum + r.count, 0)],
+            ],
+            true);
 
         addSection(
             'Notes & Methodology',
