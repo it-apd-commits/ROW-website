@@ -196,15 +196,21 @@ export function BeneficiaryListPage() {
         }
     }, [isLoading]);
 
-    const handleDelete = async (id: string, name: string, fileNumber?: string | null) => {
+    const handleDelete = async (id: string, name: string, fileNumber?: string | null, offlineToken?: string | null) => {
         if (!window.confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) return;
 
         setIsDeleting(true);
         try {
-            // Check if it's a local-only record (Dexie might use number or string for ID depending on schema)
-            const localRecord = await db.beneficiaries.get(id);
-            if (localRecord) {
-                await db.beneficiaries.delete(id);
+            // Once a beneficiary has synced, its Dexie row keeps its own local
+            // auto-increment id — unrelated to the Supabase UUID passed in as
+            // `id` here — so look the local copy up by offline_token (shared
+            // by both copies) first. Falls back to `id` for records that are
+            // still local-only/pending, where id IS the Dexie key.
+            const localRecord = offlineToken
+                ? await db.beneficiaries.where('offline_token').equals(offlineToken).first()
+                : await db.beneficiaries.get(id);
+            if (localRecord?.id != null) {
+                await db.beneficiaries.delete(localRecord.id);
             }
 
             if (isOnline) {
@@ -268,7 +274,22 @@ export function BeneficiaryListPage() {
             // Only clear the local copy once the server delete (if any) succeeded —
             // otherwise the list would look empty locally while the rows are
             // still on the server, and they'd reappear on the next fetch.
-            await db.beneficiaries.bulkDelete(selectedIds);
+            // `selectedIds` are Supabase UUIDs for already-synced records —
+            // unrelated to those records' own local Dexie auto-increment id —
+            // so resolve each one's local row via its shared offline_token.
+            // selectedIds themselves still cover local-only/pending records,
+            // where the id IS the Dexie key.
+            const selectedOfflineTokens = beneficiaries
+                .filter(b => b.id && selectedIds.includes(b.id) && b.offline_token)
+                .map(b => b.offline_token as string);
+            const localRecordsByToken = selectedOfflineTokens.length > 0
+                ? await db.beneficiaries.where('offline_token').anyOf(selectedOfflineTokens).toArray()
+                : [];
+            const localKeysToDelete = new Set<string>([
+                ...selectedIds,
+                ...localRecordsByToken.map(r => r.id).filter((id): id is string => id != null),
+            ]);
+            await db.beneficiaries.bulkDelete(Array.from(localKeysToDelete));
 
             await auditService.log('BENEFICIARY_BULK_DELETED', { count: selectedIds.length });
             setBeneficiaries(prev => prev.filter(b => !b.id || !selectedIds.includes(b.id)));
@@ -668,7 +689,7 @@ export function BeneficiaryListPage() {
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                handleDelete(stableId, b.name || 'Unknown', b.file_number);
+                                                                handleDelete(stableId, b.name || 'Unknown', b.file_number, b.offline_token);
                                                             }}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                                                             disabled={isDeleting}
