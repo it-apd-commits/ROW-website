@@ -12,7 +12,7 @@ import { db } from '@/lib/db';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import { auditService } from '@/services/auditService';
-import { DISABILITY_TYPE_OPTIONS } from '@/constants/beneficiaryDropdowns';
+import { DISABILITY_TYPE_OPTIONS, DONOR_OPTIONS } from '@/constants/beneficiaryDropdowns';
 
 
 export function AddBeneficiaryPage() {
@@ -407,9 +407,7 @@ export function AddBeneficiaryPage() {
                                 required
                                 options={[
                                     { value: '', label: '-- Select Donor --' },
-                                    { value: 'ABB', label: 'ABB' },
-                                    { value: 'Brigade', label: 'Brigade' },
-                                    { value: 'Juniper', label: 'Juniper' },
+                                    ...DONOR_OPTIONS,
                                 ]}
                             />
                             <Select

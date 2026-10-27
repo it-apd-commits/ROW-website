@@ -41,3 +41,10 @@ export const DISABILITY_TYPES = [
 ] as const;
 
 export const DISABILITY_TYPE_OPTIONS = DISABILITY_TYPES.map(d => ({ value: d, label: d }));
+
+// Donor list offered on Add/Edit Beneficiary. beneficiaries.donor is a free
+// text column (not an enum), so this only controls what's selectable in the
+// dropdown — add a new donor here when onboarding one so both forms offer it.
+export const DONORS = ['ABB', 'Brigade', 'Juniper', 'HPE'] as const;
+
+export const DONOR_OPTIONS = DONORS.map(d => ({ value: d, label: d }));

@@ -8,7 +8,7 @@ import { Card } from '@/components/common/Card';
 import { Save, ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { auditService } from '@/services/auditService';
-import { DISABILITY_TYPE_OPTIONS } from '@/constants/beneficiaryDropdowns';
+import { DISABILITY_TYPE_OPTIONS, DONOR_OPTIONS } from '@/constants/beneficiaryDropdowns';
 
 export function EditBeneficiaryPage() {
     const { id } = useParams();
@@ -315,9 +315,7 @@ export function EditBeneficiaryPage() {
                                 onChange={handleChange}
                                 options={[
                                     { value: '', label: '-- Select Donor --' },
-                                    { value: 'ABB', label: 'ABB' },
-                                    { value: 'Brigade', label: 'Brigade' },
-                                    { value: 'Juniper', label: 'Juniper' },
+                                    ...DONOR_OPTIONS,
                                 ]}
                             />
                             <Select
