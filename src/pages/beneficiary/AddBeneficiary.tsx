@@ -48,7 +48,7 @@ export function AddBeneficiaryPage() {
         pincode: '',
         mobileNo: '',
         purposeOfVisit: 'Assessment',
-        disabilityType: 'Locomotor Disability',
+        disabilityType: 'Neuromuscular Painful Condition',
         program: 'Rehab on Wheels',
         donor: '',
         economicStatus: 'BPL',
