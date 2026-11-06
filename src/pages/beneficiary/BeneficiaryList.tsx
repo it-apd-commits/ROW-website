@@ -5,6 +5,7 @@ import { Button } from '@/components/common/Button';
 import { Plus, User, MapPin, Phone, Search, Download, Trash2, CheckSquare, Square, Wifi, WifiOff, CloudOff, CloudCheck, AlertTriangle, FileUp } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { exportBeneficiariesToExcel } from '@/utils/beneficiaryExport';
+import { exportBeneficiariesToGoonjanExcel } from '@/utils/goonjanExport';
 import { db } from '@/lib/db';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -328,6 +329,15 @@ export function BeneficiaryListPage() {
         auditService.log('BENEFICIARY_DATA_EXPORTED', { count: filteredBeneficiaries.length, from_date: startDate || null, to_date: endDate || null });
     };
 
+    // Excludes beneficiaries that already have a file_number — a file_number
+    // means they've already been through Goonjan once, so re-exporting them
+    // would create a duplicate registration there (Goonjan's upload has no
+    // dedupe key of its own).
+    const handleExportGoonjan = () => {
+        exportBeneficiariesToGoonjanExcel(goonjanEligibleBeneficiaries);
+        auditService.log('BENEFICIARY_GOONJAN_EXPORTED', { count: goonjanEligibleBeneficiaries.length });
+    };
+
     const filteredBeneficiaries = beneficiaries.filter(b => {
         const matchesSearch = nameMatchesSearch(b.name, searchTerm) ||
             b.mobile_no?.includes(searchTerm) ||
@@ -356,6 +366,8 @@ export function BeneficiaryListPage() {
 
         return matchesSearch && matchesDate && matchesRegistration && matchesDonor && matchesLocation && matchesFileStatus;
     });
+
+    const goonjanEligibleBeneficiaries = filteredBeneficiaries.filter(b => !b.file_number);
 
     const pendingCount = beneficiaries.filter(
         b => (b.registration_status as string | undefined) === 'pending'
@@ -410,6 +422,17 @@ export function BeneficiaryListPage() {
                             <Download size={18} /> Export Excel ({filteredBeneficiaries.length})
                         </Button>
                     )}
+                    {/* Deliberately not gated by canExportData — every active user who can
+                        reach this page (Admin, Manager, MIS, Staff) can use this export,
+                        unlike the regular Export Excel button above. */}
+                    <Button
+                        variant="outline"
+                        onClick={handleExportGoonjan}
+                        className="flex items-center gap-2"
+                        disabled={isLoading || goonjanEligibleBeneficiaries.length === 0}
+                    >
+                        <Download size={18} /> Export for Goonjan ({goonjanEligibleBeneficiaries.length})
+                    </Button>
                     {canImportBeneficiaries && (
                         <Button
                             variant="secondary"

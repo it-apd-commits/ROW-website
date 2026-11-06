@@ -6,10 +6,11 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Card } from '@/components/common/Card';
 import { supabase } from '@/lib/supabase';
+import { EMERGENCY_ADMIN_EMAILS } from '@/types/rbac';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, disabledMessage, clearDisabledMessage } = useAuth();
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -78,16 +79,39 @@ export function LoginPage() {
     setIsLoading(true);
     setError('');
     setSuccessMessage('');
+    clearDisabledMessage();
 
     try {
       if (isLogin) {
         // Login Logic with Supabase
-        const { error: loginError } = await supabase.auth.signInWithPassword({
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
           email: formData.email,
           password: formData.password,
         });
 
         if (loginError) throw loginError;
+
+        // profiles.is_active is an app-level flag Supabase Auth itself knows
+        // nothing about — valid credentials still produce a valid session for
+        // a disabled account. Checked here, synchronously, right after
+        // sign-in, so a disabled account never even flashes the app before
+        // being signed back out (AuthContext's own check would otherwise run
+        // asynchronously, after this function has already navigated away).
+        const signedInUser = loginData.user;
+        const isEmergencyAdmin = EMERGENCY_ADMIN_EMAILS.includes((signedInUser.email || '').toLowerCase().trim());
+        if (!isEmergencyAdmin) {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('is_active')
+            .eq('id', signedInUser.id)
+            .maybeSingle();
+          if (profileRow?.is_active === false) {
+            await supabase.auth.signOut();
+            setError('Your account has been disabled. Contact your administrator.');
+            setIsLoading(false);
+            return;
+          }
+        }
 
         navigate('/');
       } else {
@@ -265,9 +289,9 @@ export function LoginPage() {
                 />
               )}
 
-              {error && (
+              {(error || disabledMessage) && (
                 <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg bg-opacity-50">
-                  {error}
+                  {error || disabledMessage}
                 </div>
               )}
 

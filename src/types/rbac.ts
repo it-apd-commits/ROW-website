@@ -1,5 +1,11 @@
 export type UserRole = 'Admin' | 'Manager' | 'Staff' | 'MIS' | 'Fleet';
 
+// Emails that always get Admin access even if the profiles row is missing,
+// unreadable, or (for the disabled-account check) marked inactive — an
+// escape hatch against total lockout. Shared by AuthContext and Login so
+// both enforce the exact same exception list.
+export const EMERGENCY_ADMIN_EMAILS = ['it@apd-india.org', 'shaikazeem@apd-india.org'];
+
 export interface PermissionRules {
     // CRUD — apply per resource (any page the role can access)
     canCreateRecords: boolean;

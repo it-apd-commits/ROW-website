@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 import type { UserRole, UserProfile } from '@/types/rbac';
+import { EMERGENCY_ADMIN_EMAILS } from '@/types/rbac';
 
 import { AuthContext } from './AuthContextObject';
 import { auditService } from '@/services/auditService';
@@ -13,6 +14,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
     const [role, setRole] = useState<UserRole>('Staff');
     const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [disabledMessage, setDisabledMessage] = useState<string | null>(null);
 
     const fetchProfile = async (userId: string, userEmail?: string) => {
         try {
@@ -23,14 +25,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 .single();
 
             // EMERGENCY BYPASS: Known admin emails that should always have access
-            const adminEmails = ['it@apd-india.org', 'shaikazeem@apd-india.org'];
-            const isEmergencyAdmin = userEmail && adminEmails.includes(userEmail.toLowerCase().trim());
+            const isEmergencyAdmin = userEmail && EMERGENCY_ADMIN_EMAILS.includes(userEmail.toLowerCase().trim());
 
             if (error) {
                 console.error('AuthContext: Profile fetch error:', error);
             }
 
+            // A disabled account (Admin Control's "Disable" toggle) was previously
+            // never checked anywhere — a still-valid session kept full access to
+            // every page and action. Catches it here, which runs on initial load,
+            // every sign-in, and every background token refresh, so a disabled
+            // account loses access within one refresh cycle even if already open
+            // in a browser tab. Login.tsx additionally checks right at sign-in
+            // time so there's no flash of the app before being signed back out.
+            if (data && !error && data.is_active === false && !isEmergencyAdmin) {
+                console.warn('AuthContext: Account is disabled — signing out.');
+                setDisabledMessage('Your account has been disabled. Contact your administrator.');
+                setProfile(null);
+                setRole('Staff');
+                setUser(null);
+                setSession(null);
+                await supabase.auth.signOut();
+                return;
+            }
+
             if (data && !error) {
+                setDisabledMessage(null);
                 setProfile(data);
 
                 // Extremely robust role normalization
@@ -118,8 +138,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (user) await fetchProfile(user.id, user.email);
     };
 
+    const clearDisabledMessage = () => setDisabledMessage(null);
+
     return (
-        <AuthContext.Provider value={{ isAuthenticated, user, session, isLoading, logout, role, profile, refreshProfile }}>
+        <AuthContext.Provider value={{ isAuthenticated, user, session, isLoading, logout, role, profile, refreshProfile, disabledMessage, clearDisabledMessage }}>
             {children}
         </AuthContext.Provider>
     );
